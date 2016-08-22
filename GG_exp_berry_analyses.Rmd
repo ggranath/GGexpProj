@@ -1,0 +1,778 @@
+---
+title: 'The GG experiment: a thinning, N, NP experiment along a climatic gradient'
+author: "Gustaf Granath"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: pdf_document
+---
+
+```{r echo=FALSE, results='hide',message=FALSE}
+#Organize the data so we get the righ treatments and some add-on info like latitud.
+dat <- read.csv("GG_exp_2014_2015.csv")
+dat <- read.csv("gg_soil_depths.csv")
+dat <- read.csv("tea_decomp.csv")
+
+tre <- read.csv("gg_treat_table.csv")
+#treat <- unique(dat[, c("no_exp", "plot", "region", "treatment")])
+#full_dat <- (merge(datD, treat, by = c("no_exp", "plot") ))
+#write.csv(full_dat, file="decomp.csv")
+
+info <- read.csv("GG_meta.csv")
+info <- info[, c("no_exp", "Landskap", "Anläggningsår", "Latitud", "Longitud", "Experiment_namn")]
+dat$region <- ifelse(dat$region == "A" | dat$region == "B", "AB", "CD")
+#Grangärde has a different treatment: Severe thinning + N. We can remove it or merge it with
+# normal thinning.
+#full_dat2 <- full_dat[!(full_dat$real_treat == "severe_thinning+N"),]
+#full_dat2 <- droplevels(full_dat2)
+dat$treatment[dat$treatment=="L"] <- "F" #Change severe thinning to thinning
+dat <- droplevels(dat)
+
+full_dat <- (merge(dat, tre, by = c("region", "treatment") ))
+full_dat <- (merge(full_dat, info, by = c("no_exp") ))
+full_dat <- droplevels(full_dat)
+
+# tea decomposition
+full_dat$green <- (full_dat$Green..g. - full_dat$after_green)/full_dat$Green..g.
+full_dat$red <- (full_dat$Red..g. - full_dat$after_red)/full_dat$Red..g.
+#nbh <- full_dat[!(full_dat$comment_g == "vbh" | full_dat$comment_g == "destroyed"), "green" ]
+#bh <- full_dat[(full_dat$comment_g == "vbh" | full_dat$comment_g == "destroyed"), "green" ]
+#hist(nbh)
+#hist(bh)
+#mean(nbh, na.rm = TRUE)
+#mean(bh, na.rm = TRUE)
+#nbh <- full_dat[!(full_dat$comment_r == "vbh" | full_dat$comment_r == "destroyed"), "red" ]
+#bh <- full_dat[(full_dat$comment_r == "vbh" | full_dat$comment_r == "destroyed"), "green" ]
+#hist(nbh)
+#hist(bh)
+#mean(nbh, na.rm = TRUE)
+#mean(bh, na.rm = TRUE)
+# Red tea affected by "holes"
+full_dat[full_dat$comment_r == "vbh" | full_dat$comment_r == "destroyed", "red" ] <- NA
+full_dat[full_dat$comment_r == "vbh" | full_dat$comment_r == "destroyed", "green" ] <- NA
+
+# decomp green
+site_means <- aggregate(green ~ no_exp + real_treat, full_dat, mean)
+site_means$no_exp <- factor(site_means$no_exp)
+site_means <- (merge(site_means, info[, c("no_exp", "Latitud", "Experiment_namn")], by = c("no_exp") )) #add latitude
+treat_means <- aggregate(green ~ real_treat, site_means, mean)
+treat_means$se <- aggregate(green ~ real_treat, site_means, FUN = function(x) sd(x)/sqrt(length(x)) )$green
+library(ggplot2)
+ggplot(treat_means, aes(x=real_treat, y=green)) + 
+     geom_errorbar(aes(ymin=green-se, ymax=green+se), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=12)) +
+    ylab("")
+     geom_line(data = site_means, aes(group=no_exp, colour=no_exp))+
+     geom_point(data = site_means, aes(group=no_exp, colour=no_exp))
+
+  #stats green
+library(nlme)
+site_means$Latitud.s <- scale(site_means$Latitud, scale = FALSE)
+mod <- lme(green ~ real_treat + Latitud.s, weights = varComb(varIdent(form = ~ 1|real_treat) ), random = ~1|factor(no_exp), site_means)
+anova(mod)
+summary(mod)
+library(lsmeans)
+lsplot.min <- summary(lsmeans(mod, ~ real_treat, at = list(Latitud.s = min(site_means$Latitud.s))))
+lsplot.max <- summary(lsmeans(mod, ~ real_treat, at = list(Latitud.s = max(site_means$Latitud.s))))
+lsplot <- data.frame(rbind(lsplot.min, lsplot.max), region = rep(c("s.swe", "n.swe"), each =5))
+ggplot(lsplot, aes(x=real_treat, y=lsmean, group = region, color = region)) + 
+     geom_errorbar(aes(ymin=lsmean-SE, ymax=lsmean+SE), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=12), 
+           axis.title=element_text(size=15),
+           legend.title=element_text(size=14),
+           legend.text = element_text(size = 14) )+
+  scale_colour_discrete(name="GREEN TEA\n\nRegion", guide = guide_legend(reverse=TRUE)) +
+    ylab("Proportion mass loss") +
+    xlab("Treatment")
+
+library(multcomp)
+summary(glht(mod, linfct = mcp(real_treat = "Tukey")))
+
+     # decomp red
+site_means <- aggregate(red ~ no_exp + real_treat, full_dat, mean)
+site_means$no_exp <- factor(site_means$no_exp)
+site_means <- (merge(site_means, info[, c("no_exp", "Latitud", "Experiment_namn")], by = c("no_exp") )) #add latitude
+treat_means <- aggregate(red ~ real_treat, site_means, mean)
+treat_means$se <- aggregate(red ~ real_treat, site_means, FUN = function(x) sd(x)/sqrt(length(x)) )$red
+library(ggplot2)
+ggplot(treat_means, aes(x=real_treat, y=red)) + 
+     geom_errorbar(aes(ymin=red-se, ymax=red+se), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=12))+
+     geom_line(data = site_means, aes(group=no_exp, colour=no_exp))+
+     geom_point(data = site_means, aes(group=no_exp, colour=no_exp))
+library(lattice)
+xyplot(red~real_treat|no_exp, site_means, type = c("p"))
+
+  #stats red
+library(nlme)
+site_means$Latitud.s <- scale(site_means$Latitud, scale = FALSE)
+mod <- lme(red ~ real_treat+Latitud.s, weights = varComb(varIdent(form = ~ 1|real_treat), varExp(form = ~ red) ), random = ~1|factor(no_exp), site_means)
+anova(mod)
+
+summary(mod)
+library(lsmeans)
+lsplot.min <- summary(lsmeans(mod, ~ real_treat, at = list(Latitud.s = min(site_means$Latitud.s))))
+lsplot.max <- summary(lsmeans(mod, ~ real_treat, at = list(Latitud.s = max(site_means$Latitud.s))))
+lsplot <- data.frame(rbind(lsplot.min, lsplot.max), region = rep(c("s.swe", "n.swe"), each =5))
+ggplot(lsplot, aes(x=real_treat, y=lsmean, group = region, color = region)) + 
+     geom_errorbar(aes(ymin=lsmean-SE, ymax=lsmean+SE), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=12), 
+           axis.title=element_text(size=15),
+           legend.title=element_text(size=14),
+           legend.text = element_text(size = 14) )+
+  scale_colour_discrete(name="RED TEA\n\nRegion", guide = guide_legend(reverse=TRUE)) +
+    ylab("Proportion mass loss") +
+    xlab("Treatment")
+
+library(multcomp)
+summary(glht(mod, linfct = mcp(real_treat = "Tukey")))
+
+# soil depth
+site_means <- aggregate(SOL_depth_mm ~ no_exp + real_treat, full_dat, mean)
+site_means$no_exp <- factor(site_means$no_exp)
+site_means <- (merge(site_means, info[, c("no_exp", "Latitud", "Experiment_namn")], by = c("no_exp") )) #add latitude
+treat_means <- aggregate(SOL_depth_mm ~ real_treat, site_means, mean)
+treat_means$se <- aggregate(SOL_depth_mm ~ real_treat, site_means, FUN = function(x) sd(x)/sqrt(length(x)) )$SOL_depth_mm
+library(ggplot2)
+ggplot(treat_means, aes(x=real_treat, y=SOL_depth_mm)) + 
+     geom_errorbar(aes(ymin=SOL_depth_mm-se, ymax=SOL_depth_mm+se), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=12))
+     geom_line(data = site_means, aes(group=no_exp, colour=no_exp))+
+     geom_point(data = site_means, aes(group=no_exp, colour=no_exp))
+
+  #stats
+summary(lm(SOL_depth_mm ~ factor(no_exp) + real_treat, site_means))
+library(nlme)
+mod <- lme(SOL_depth_mm ~ real_treat + scale(Latitud, scale=FALSE), weights = varComb(varIdent(form = ~ 1|real_treat) ), random = ~1|factor(no_exp), site_means)
+mod <- lme(SOL_depth_mm ~ real_treat + scale(Latitud, scale=FALSE), weights = varExp(0.1,form = ~ SOL_depth_mm), random = ~1|factor(no_exp), site_means, control =  lmeControl(maxIter = 200))
+
+mod <- lme(log(SOL_depth_mm) ~ real_treat + scale(Latitud, scale=FALSE), random = ~1|factor(no_exp), site_means)
+
+summary(mod)
+library(multcomp)
+summary(glht(mod, linfct = mcp(real_treat = "Tukey")))
+
+#diag
+plot(mod, form= resid(., type = "p") ~ fitted(.)| real_treat,id=.15, idLables = site_means$Experiment_namn)
+qqnorm(mod, ~ resid(., type = "p") | real_treat, id=.15)
+
+#variances
+as.numeric(as.character(VarCorr(mod)[1])) / var(site_means$SOL_depth_mm) #random site
+tot.sigm <- mean(mod$sigma*
+      coef(mod$modelStruct$varStruct,
+          uncons = FALSE, allCoef = TRUE))^2
+tot.sigm / var(site_means$SOL_depth_mm) # unexplained
+
+mod$sigma*
+      coef(mod$modelStruct$varStruct,
+          uncons = FALSE, allCoef = TRUE)
+
+# If we use raw data for modelling (poisson)
+full_dat$thin <- ifelse(grepl("thinning", full_dat$real_treat), "thin", "no_thin")
+full_dat$N <- ifelse(grepl("N", full_dat$real_treat), "Nxtra", "no_N")
+full_dat$P <- ifelse(grepl("P", full_dat$real_treat), "Pxtra", "no_P")
+full_dat$id <- factor(paste(full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
+full_dat$idd <- factor(paste(full_dat$year, full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
+full_dat$iddd <- factor(1:nrow(full_dat))
+full_dat$year <- factor(full_dat$year) # years as categories
+full_dat$Latitud.s <- scale(full_dat$Latitud, scale = FALSE) # centralize latitude so means are given for mean latitude (so mid sweden)
+
+
+#function for SEs of poisson models
+#from Ben Bolkers documents
+easyPredCI <- function(model,newdata,alpha=0.05) {
+    ## baseline prediction, on the linear predictor (logit) scale:
+    pred0 <- predict(model,re.form=NA,newdata=newdata)
+    ## fixed-effects model matrix for new data
+    X <- model.matrix(formula(model,fixed.only=TRUE)[-2],
+                   newdata)
+    beta <- fixef(model) ## fixed-effects coefficients
+    V <- vcov(model)     ## variance-covariance matrix of beta
+    pred.se <- sqrt(diag(X %*% V %*% t(X))) ## std errors of predictions
+    ## inverse-link (logistic) function: could also use plogis()
+    linkinv <- model@resp$family$linkinv
+    ## construct 95% Normal CIs on the link scale and
+    ##  transform back to the response (probability) scale:
+    crit <- -qnorm(alpha/2)
+    #for CIs
+    #linkinv(cbind(lwr=pred0-crit*pred.se,
+     #             upr=pred0+crit*pred.se))
+    #for SEs only
+    linkinv(cbind(lwr=pred0-pred.se,
+                  upr=pred0+pred.se))
+}
+
+#function checking overdispersion
+overdisp_fun <- function(model) {
+  ## number of variance parameters in 
+  ##   an n-by-n variance-covariance matrix
+  vpars <- function(m) {
+    nrow(m)*(nrow(m)+1)/2
+  }
+  model.df <- sum(sapply(VarCorr(model),vpars))+length(fixef(model))
+  rdf <- nrow(model.frame(model))-model.df
+  rp <- residuals(model,type="pearson")
+  Pearson.chisq <- sum(rp^2)
+  prat <- Pearson.chisq/rdf
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+```
+
+```{r}
+#Make simple map over sites in sweden
+# loading the required packages
+library(ggplot2)
+library(ggmap)
+
+# creating a sample data.frame with your lat/lon points
+df <- as.data.frame(cbind(info$Longitud,info$Latitud))
+
+# getting the map
+map.gg <- get_map(location = c(lon = mean(df$V1), lat = mean(df$V2)), zoom = 4,
+                      maptype = "satellite", scale = 2)
+
+# plotting the map with some points on it
+ggg.map <- ggmap(map.gg) +
+  geom_point(data = df, aes(x = V1, y = V2, fill = "red", alpha = 0.8), size = 5, shape = 21) +
+  guides(fill=FALSE, alpha=FALSE, size=FALSE)
+ggsave("gggMap.png")
+
+#We start with calculating the means for each site x treatment combination for both years. We also add the treatments as N, thinning and P.
+
+means <- aggregate(cbind(billberry_fruits, billberry_cover, billberry_fungi, billberry_herbivory,
+                          cowberry_fruits, cowberry_cover, cowberry_fungi, cowberry_herbivory) ~ 
+                      Latitud + region + year + exp_name + real_treat, full_dat, mean)
+means$thin <- ifelse(grepl("thinning", means$real_treat), "thin", "no_thin")
+means$N <- ifelse(grepl("N", means$real_treat), "Nxtra", "no_N")
+means$P <- ifelse(grepl("P", means$real_treat), "Pxtra", "no_P")
+
+means$thin <- ifelse(grepl("thinning", means$real_treat), "thin", "no_thin")
+means$N <- ifelse(grepl("N", means$real_treat), "Nxtra", "no_N")
+means$P <- ifelse(grepl("P", means$real_treat), "Pxtra", "no_P")
+
+#Or treat fruits as total count
+sums <- aggregate(cbind(billberry_fruits, billberry_fungi, billberry_herbivory,
+                          cowberry_fruits, cowberry_fungi, cowberry_herbivory) ~ 
+                      Latitud + region + year + exp_name + real_treat, full_dat, sum)
+sums$thin <- ifelse(grepl("thinning", means$real_treat), "thin", "no_thin")
+sums$N <- ifelse(grepl("N", means$real_treat), "Nxtra", "no_N")
+sums$P <- ifelse(grepl("P", means$real_treat), "Pxtra", "no_P")
+sums$Latitud.s <- scale(sums$Latitud, scale=FALSE)
+#
+
+#Grangärde has a different treatment: Severe thinning + N. We remove it for to keep it simple.
+means <- means[!(means$real_treat == "severe_thinning+N"),]
+means <- droplevels(means)
+
+#Overview treatments and sample size
+treat.n <- table(means[,c("thin","N", "P")])
+```
+
+#Berries
+First berry production (billberry and cowberry).
+We can plot the results for each site.
+
+```{r,echo = FALSE,fig.width=14, fig.height=10}
+library(lattice)
+xyplot(billberry_fruits ~ real_treat|exp_name, groups = year, means, main ="Billberry",type = c("p","l"), auto=TRUE, xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+xyplot(cowberry_fruits ~ real_treat|exp_name, groups = year, means, main ="Cowberry",type = c("p","l"), auto=TRUE, xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+```
+
+Clearly more billberries in 2015, but that doesnt seems to hold up for cowberry. Otherwise trends are not obvious. Seems like thinning has a slight positive effect. Lets put everything in one graph
+
+```{r,echo = FALSE}
+xyplot(billberry_fruits ~ real_treat|year, groups = exp_name, means, main ="Billberry", type = c("p","l"), xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+xyplot(cowberry_fruits ~ real_treat|year, groups = exp_name, means, main ="Cowberry", type = c("p","l"), xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+```
+
+Ugh! That got messy. Lets see if some stats can sort this out.
+
+
+Maybe we can pick up that thinning effect in a statistical model?
+We may want to skip the "not_thinned+N" treatment since we only have data from a few sites. But lets keep for now.
+```{r echo=FALSE, results='hide',message=FALSE}
+#remove not_thinned+N
+#means <- means[!(means$real_treat=="not_thinned+N"),]
+```
+
+Variance increases with the response so we need to deal with that. Im applying a variance function here to model the increasing variance. This is often a good solution since you avoid taking the natural log (not always easy to interpret the results).
+
+##First billberry. ####
+```{r echo=FALSE}
+library(lme4)
+full_dat2 <- full_dat # here you can remove the severe thin+N
+sum(full_dat2[full_dat2$billberry_fruits == "0","billberry_cover"] == 0) / length(full_dat2[full_dat2$billberry_fruits == "0","billberry_cover"]) # % of 0 berries that are due to no cover
+
+#aggregated data
+library(lme4)
+sums$area <- 14*0.25
+sums$id <- factor(paste(sums$real_treat,sums$exp_name, sep="_"))
+sums$idd <- factor(1:nrow(sums))
+modB_pois_cat_fru.b <- glmer(billberry_fruits ~ offset(log(area)) + year*real_treat + Latitud.s + (year-1|exp_name)+ (1|id) + (1|idd), sums, family = poisson)
+overdisp_fun(modB_pois_cat_fru.b)
+summary(modB_pois_cat_fru.b)
+AIC((modB_pois_cat_fru.b))
+
+library(MCMCglmm)
+modB_pois_cat_fru <- MCMCglmm(billberry_fruits ~ year*real_treat+Latitud.s, random = ~us(1+year):exp_name + id, data=sums, family = "poisson",  nitt = 30000, burnin = 5000, pr=TRUE, pl = TRUE)
+summary(modB_pois_cat_fru)
+
+library(glmmADMB)
+ad.mod <- glmmadmb(billberry_fruits ~ year*real_treat+real_treat*Latitud.s + (1|exp_name) + (1|id), 
+                           data=sums, family = "nbinom", zeroInflation=TRUE)
+summary(ad.mod)
+
+
+# sim with mcmcglmm
+mc.pred.sim <- simulate.MCMCglmm(modB_pois_cat_fru, nsim=2000,
+                             posterior="mean", type="response")
+nzeros <- colSums(mc.pred.sim==0)
+par(las=1,bty="l")
+plot(pt <- prop.table(table(nzeros)),
+     ylab="Probability")
+(obszero <- sum(sums$billberry_fruits==0))
+points(obszero,0.005,col="red",pch=16,cex=2)
+### Average over simulations to get predicted counts
+out <- matrix(NA, ncol=3, nrow=651)
+cnt <- 0:650
+
+for (i in 1:length(cnt)) {
+	out[i,1] <- mean(apply(mc.pred.sim, 2, 
+						FUN = function(x) {
+							sum(x == cnt[i]) }))
+	out[i,2:3] <-quantile(as.numeric(apply(mc.pred.sim, 2, FUN= function (x) sum(x == cnt[i]))), 
+	                      prob=c(0.1, 0.9))
+}
+
+comp <- data.frame(y.mod=as.matrix(out), x=0:650)
+d.raw <- data.frame(y.raw=as.matrix((table(sums$billberry_fruits))), x=as.numeric(rownames(table(sums$billberry_fruits))))
+comp2 <- merge(comp, d.raw, by="x")
+comp2 <- reshape(comp2, direction = "long", varying = list(c(2,5)), times=c("y.mod.1", "y.raw"), v.names = "freq")
+library(ggplot2)
+ggplot(comp2, aes(x=x, y=freq ,fill=time))+
+  geom_bar(stat="identity",position="dodge") +
+      geom_errorbar(aes(ymin=y.mod.2, ymax=y.mod.3),
+                  width=0, size=0.1, colour= "grey6",                  
+                  position=position_dodge(.9))
+
+
+
+
+ranef.mcmc <- colMeans(modB_pois_cat_fru$Liab) - predict(modB_pois_cat_fru, 
+marginal = NULL, type = "terms")
+hist(ranef.mcmc)
+qqnorm(ranef.mcmc) ; qqline(ranef.mcmc)
+
+#glmer model Predictive check
+mod.sim <- simulate(modB_pois_cat_fru.b, nsim = 2000)
+nzeros <- colSums(mod.sim==0)
+par(las=1,bty="l")
+plot(pt <- prop.table(table(nzeros)),
+     ylab="Probability")
+(obszero <- sum(sums$billberry_fruits==0))
+points(obszero,0.005,col="red",pch=16,cex=2)
+
+### Average over simulations to get predicted counts
+out <- matrix(NA, ncol=3, nrow=651)
+cnt <- 0:650
+
+for (i in 1:length(cnt)) {
+	out[i,1] <- mean(apply(mod.sim, 2, 
+						FUN = function(x) {
+							sum(x == cnt[i]) }))
+	out[i,2:3] <-quantile(as.numeric(apply(mod.sim, 2, FUN= function (x) sum(x == cnt[i]))), 
+	                      prob=c(0.1, 0.9))
+}
+
+comp <- data.frame(y.mod=as.matrix(out), x=0:650)
+d.raw <- data.frame(y.raw=as.matrix((table(sums$billberry_fruits))), x=as.numeric(rownames(table(sums$billberry_fruits))))
+comp2 <- merge(comp, d.raw, by="x")
+comp2 <- reshape(comp2, direction = "long", varying = list(c(2,5)), times=c("y.mod.1", "y.raw"), v.names = "freq")
+library(ggplot2)
+ggplot(comp2, aes(x=x, y=freq ,fill=time))+
+  geom_bar(stat="identity",position="dodge") +
+      geom_errorbar(aes(ymin=y.mod.2, ymax=y.mod.3),
+                  width=0, size=0.1, colour= "grey6",                  
+                  position=position_dodge(.9))
+# end glmer sim
+
+### not agg data
+library(glmmADMB)
+ad.mod <- glmmadmb(billberry_fruits ~ year*real_treat+real_treat*Latitud.s + (1|exp_name) + (1|id) + (1|idd), 
+                           data=full_dat2, family = "nbinom", verbose=TRUE)
+summary(ad.mod)
+simulate(ad.mod)
+
+
+library(MCMCglmm)
+modB_pois_cat_fru <- MCMCglmm(billberry_fruits ~ year*real_treat+real_treat*Latitud.s, random = ~exp_name + id + idd, data=full_dat2, family = "poisson",  nitt = 30000, burnin = 5000, pr=TRUE, pl = TRUE)
+summary(modB_pois_cat_fru)
+
+mc.pred <- predict.MCMCglmm(modB_pois_cat_fru, posterior="mean")
+mc.pred <- predict.MCMCglmm(modB_pois_cat_fru, marginal=NULL, posterior="distribution", type="terms", interval = "prediction")
+sum(dpois(0, exp(mc.pred)))
+
+modB_pois_cat_fru2 <- glmer(billberry_fruits ~ year*real_treat+real_treat+Latitud.s + (1|exp_name) + (1|idd) + (1|iddd), 
+                           full_dat2, family = poisson,  control=glmerControl(optimizer="nloptwrap",nAGQ=0))
+modB_pois_cat_fru.b <- glmer(billberry_fruits ~ year+Latitud.s + (1|exp_name)+ (1|id)+ (1|idd)+ (1|iddd), 
+                             full_dat2, family = poisson)
+overdisp_fun(modB_pois_cat_fru)
+summary(modB_pois_cat_fru2, cor=FALSE)
+anova(modB_pois_cat_fru)
+plot(modB_pois_cat_fru)
+library(nlme)
+modB_log_cat <- lme((billberry_fruits+0.1)^0.25 ~ Latitud.s*real_treat + year*real_treat, random= ~ 1|exp_name/id/idd, full_dat2, 
+                     control=list(maxIter=200,opt = "optim") )
+anova(modB_log_cat)
+plot(modB_log_cat)
+summary(modB_log_cat)
+
+
+library(nlme)
+# first things some thing.
+means$id <- factor(paste(means$exp_name, means$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
+means$year <- factor(means$year) # years as categories
+means$Latitud.s <- scale(means$Latitud, scale = FALSE) # centralize latitude so means are given for mean latitude (so mid sweden)
+
+# we can analyse as categorical levels
+# we use a power function for the variance to account for the increasing variance with the response
+# the prower function cant take zeros it seems so we add 0.1.
+modB_log_cat <- lme(billberry_fruits+0.1 ~ Latitud.s + year+real_treat, random= ~ 1|exp_name/id, means, 
+                    weights = varPower(form =~fitted(.)) , control=list(maxIter=1000,opt = "optim") )
+
+#alternative ways to analyse the data
+# log with +0.1 gives good residuals
+#modB_log_cat <- lme(log(billberry_fruits+0.1) ~ factor(year)+real_treat+scale(Latitud), random= ~ 1|exp_name/id, weights = varIdent(form=~1|real_treat), means,control=list(maxIter=1000,opt = "optim") )
+
+# we can treat it as N and thinning. We also have P but we have to remember that P actually is
+# N+thin+P
+#modB_log_pred <- lme(log(billberry_fruits+0.1) ~ factor(year)+N*thin+P+scale(Latitud), random= ~ 1|exp_name/id, weights = varIdent(form=~1|real_tr#eat), means,control=list(maxIter=1000,opt = "optim") )
+
+# an option is to use ^0.25 as transformation
+#modB_log_pred <- lme(billberry_fruits^0.25 ~ factor(year)+N*thin+P+scale(Latitud), random= ~ 1|exp_name/id, weights = varIdent(form=~1|real_treat##), means,control=list(maxIter=1000,opt = "optim") )
+
+#summary(modB_log_cat)
+```
+ANOVA TABLE (real_treat = the treatment categories)
+
+```{r echo=FALSE} 
+anova(modB_log_cat)
+```
+
+A residual plot that looks OK.
+
+```{r echo=FALSE} 
+plot(modB_log_cat)
+```
+
+An effect detected! Well, **P = ```r round(anova(modB_log_cat)$'p-value'[3],4) ```**. The model looks OK but there is no autocorrelation between years which is a little bit weird.  
+The effect may be tiny so lets plot the predicted means.
+
+```{r echo=FALSE, results='hide',message=FALSE}
+# Define groups to predict means for
+newDat <- data.frame("real_treat" = rep(levels(means$real_treat), 2), "year" =rep(levels(means$year), each=length(levels(means$real_treat))),
+                  "Latitud.s" = 0)
+# Predict means
+newDat$means <- predict(modB_log_cat, newDat, level =0)
+
+#create design matrix
+Designmat <- model.matrix(eval(eval(modB_log_cat$call$fixed)[-2]), newDat[-ncol(newDat)])
+
+#compute standard error for predictions
+predvar <- diag(Designmat %*% modB_log_cat$varFix %*% t(Designmat))
+newDat$SE <- sqrt(predvar) 
+
+#plot
+library(ggplot2)
+ggplot(newDat, aes(x=real_treat, y=means, fill=year)) + 
+    geom_bar(width = 0.75, position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=means-SE, ymax=means+SE),
+                  width=.1,                    # Width of the error bars
+                  position=position_dodge(.8)) +
+  ylab(expression("No of berries per 0.25 m"^2)) +
+  xlab("TREATMENTS") +
+ ggtitle("Treatment effetcs on billberry productioin")
+
+# #code for backtransform log-scale
+# For example in 2015, thinning alone increases berry production with **```r round(exp(fixef(modB_log_cat)[1]+fixef(modB_log_cat)[2]+fixef(modB_log_cat)[4]  + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])) - exp(fixef(modB_log_cat)[1]+fixef(modB_log_cat)[2] + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])),2)```. Wow! ;)**. 
+# In 2014, the thinning effect was **```r round(exp(fixef(modB_log_cat)[1]+fixef(modB_log_cat)[4] + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])) - exp(fixef(modB_log_cat)[1] + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])),2)```. Wow! ;)**
+# 
+# However, N addition has a negative effect on berry production when comparing a thinned stand with a thinned and N fertilized stand: a reduction of 
+# **```r round(exp(fixef(modB_log_cat)[1]+fixef(modB_log_cat)[2]+fixef(modB_log_cat)[4]  + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])) - exp(fixef(modB_log_cat)[1]+fixef(modB_log_cat)[2]+fixef(modB_log_cat)[5] + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])),2)```.** In 2014, the N effect was **```r round(exp(fixef(modB_log_cat)[1]+fixef(modB_log_cat)[4]  + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])) - exp(fixef(modB_log_cat)[1]+fixef(modB_log_cat)[5] + 0.5*as.numeric(VarCorr(modB_log_cat)[4,1])),2)```. **
+
+#The correlation coef between two samples, 2014 and 2015, is , r = **```r round(as.numeric(VarCorr(modB_log_cat)[4,1]) / (as.numeric(VarCorr(modB_log_cat)[4,1]) + as.numeric(VarCorr(modB_log_cat)[5,1])), 2)``` **
+  
+```
+
+What sticks out is the positive effect of thinning on berry production. For example, thinning alone increases berry production with **```r newDat[3,4] - newDat[1,4]```** berries. Wow! ;). However, N addition has a negative effect on berry production. E.g. when comparing a thinned stand with a thinned and N fertilized stand: a reduction of  **```r  newDat[3,4] - newDat[4,4]```** berries.
+
+I DID NOT INCLUDE ANY INTERACTIONS. That is why the year difference is the same for all treatments. THIS GOES FOR ALL PLOTS!!
+I did test year*treat here and it does mess thing up a bit. 1) the model freaks out and Im not sure the results are trustworthy. The year*treat interaction is far from significant and weird things seems to happen. However, it seems like the effect was stronger in one year and that the negative N effect was rather weak the other year, especially in the NP treatment. This needs further analyses.........
+
+2015 had on average **```r mean(newDat[1:5,"means"])```** berries.
+2014 had on average **```r mean(newDat[6:10,"means"])```** berries. 
+
+On average (pooling over years, sites, plot) a 0.25 m2 plot had ```r round(mean(means$billberry_fruits),2) ``` billberries. As you see, this number is higher than the predicted mean. The lower predicted mean is taking into account the structure of the data and will down weight the extreme high values observed in 2015 (a random effect model will pull extreme towards the middle). If we look at the raw median, then the picture changes a bit ```r round(median(means$billberry_fruits),2)```.
+
+```{r echo=FALSE, results='hide',message=FALSE}
+#modB_log_cat_yr <- lme(billberry_fruits+1 ~ year, random= ~ 1|exp_name/id, means, weights = varPower(form =~fitted(.)) , control=list(maxIter=1000,opt = "optim") )
+#summary(modB_log_cat_yr)
+
+# modB_log_year <- lme(log(billberry_fruits+0.1) ~ factor(year), random= ~ 1|exp_name/id, means,control=list(maxIter=1000,opt = "optim") )
+# modB_log_year <- lm(log(billberry_fruits+0.1) ~ factor(year), means)
+# modB_log_year2 <- lm(log(billberry_fruits+0.1) ~ 1, means)
+# aggregate((billberry_fruits+0.1)~year, means, median)
+# summary(modB_log_year)
+# summary(modB_log_year2)
+# 
+# exp(1.38+(1.32)/2)
+# 
+# tt <- rlnorm(500, 1.38, 1.32)
+# median(tt)
+# exp(mean(log(tt))+(1.32^2)/2)
+# exp(1.75+0.7/2)
+```
+
+##Now cowberry.
+Data is messy again and we have a few very high values in 2015. The power variance functions dont work well and I instead tried to model seperate variances for each group x year combination. Seems to work OK and I think the stat tests should be fine. 
+```{r}
+modC_log_cat <- lme(cowberry_fruits ~ year+real_treat+Latitud.s, random= ~ 1|exp_name/id, means, weights = varIdent(form=~1|real_treat*year) , control=list(maxIter=1000,opt = "optim") )
+#summary(modC_log_cat)
+```
+
+ANOVA TABLE (real_treat = the treatment categories)
+
+```{r echo=FALSE} 
+anova(modC_log_cat)
+```
+
+A residual plot that looks quite OK.
+
+```{r echo=FALSE} 
+plot(modC_log_cat)
+```
+
+An effect detected! **P = ```r round(anova(modC_log_cat)$'p-value'[3],4) ```**. 
+
+```{r echo=FALSE, results='hide',message=FALSE}
+# Define groups to predict means for
+newDat <- data.frame("real_treat" = rep(levels(means$real_treat), 2), "year" =rep(levels(means$year), each=length(levels(means$real_treat))),
+                  "Latitud.s" = 0)
+# Predict means
+newDat$means <- predict(modC_log_cat, newDat, level =0)
+
+#create design matrix
+Designmat <- model.matrix(eval(eval(modC_log_cat$call$fixed)[-2]), newDat[-ncol(newDat)])
+
+#compute standard error for predictions
+predvar <- diag(Designmat %*% modC_log_cat$varFix %*% t(Designmat))
+newDat$SE <- sqrt(predvar) 
+
+#plot
+library(ggplot2)
+ggplot(newDat, aes(x=real_treat, y=means, fill=year)) + 
+    geom_bar(width = 0.75, position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=means-SE, ymax=means+SE),
+                  width=.1,                    # Width of the error bars
+                  position=position_dodge(.8)) +
+  ylab(expression("No of berries per 0.25 m"^2)) +
+  xlab("TREATMENTS") +
+ ggtitle("Treatment effetcs on cowberry productioin")
+```
+
+What sticks out is the positive effect of thinning on berry production. For example, thinning alone increases berry production with **```r newDat[3,4] - newDat[1,4]```** berries. Wow! ;). However, N addition has a negative effect on berry production when comparing a thinned stand with a thinned and N fertilized stand: a reduction of  **```r  newDat[3,4] - newDat[4,4]```** berries.
+
+I testsed the year*treat interaction which was highly significant here. BUT the effect is not super important I would say. THe difference between the years are mainly between not_thinned vs not_thinned+N. In 2015 the variation in thinning and thinnin+N is much higher and these two treatments have quite an overlap.....effect size not much different from 2014 though.
+
+2015 had on average **```r mean(newDat[1:5,"means"])```** cowberries.
+2014 had on average **```r mean(newDat[6:10,"means"])```** cowberries. 
+
+On average (pooling over years, sites, plot) a 0.25 m2 plot had ```r round(mean(means$cowberry_fruits),2) ``` cowberries. If we look at the raw median, then the picture changes a bit ```r round(median(means$cowberry_fruits),2)```. See discussion above regarding model predicted means vs raw means.
+
+##Cover
+We can plot the results for each site.
+
+```{r,echo = FALSE,fig.width=14, fig.height=10}
+library(lattice)
+xyplot(billberry_cover ~ real_treat|exp_name, groups = year, means, main ="Billberry",type = c("p","l"), auto=TRUE, xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+xyplot(cowberry_cover ~ real_treat|exp_name, groups = year, means, main ="Cowberry",type = c("p","l"), auto=TRUE, xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+```
+
+```{r}
+ggplot(means, aes(x = billberry_cover, y=billberry_fruits)) +
+  geom_point() + scale_y_log10()  + ylab(expression("Billberry fruits per 0.25 m"^-2)) +
+  xlab("Billberry cover (%)")
+ggplot(means, aes(x = cowberry_cover, y=cowberry_fruits)) +
+  geom_point() + scale_y_log10() + ylab(expression("Cowberry fruits per 0.25 m"^-2)) +
+  xlab("Cowberry cover (%)")
+  
+```
+
+Didnt dig deeper into this..........
+
+##Fungus
+
+```{r,echo = FALSE,fig.width=14, fig.height=10}
+library(lattice)
+xyplot(billberry_fungi ~ real_treat|exp_name, groups = year, means, main ="Billberry",type = c("p","l"), auto=TRUE, xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+xyplot(cowberry_fungi ~ real_treat|exp_name, groups = year, means, main ="Cowberry",type = c("p","l"), auto=TRUE, xlab="",
+       scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
+```
+
+#Billberry
+Lots of zeros and low values so I tried with a poisson distribution as well.
+
+```{r echo=FALSE, results='hide',message=FALSE}
+#modC_fun_cat <- lme(billberry_fungi+0.1 ~ year+real_treat+Latitud.s, random= ~ 1|exp_name/id, means,   weights = varPower(form =~fitted(.)) ,control=list(maxIter=1000,opt = "optim") )
+library(lme4)
+modB_pois_cat <- glmer(as.integer(billberry_fungi) ~ year+real_treat+Latitud.s + (1|exp_name/id), means, family = poisson)
+modB_pois_cat.b <- glmer(as.integer(billberry_fungi) ~ year+Latitud.s + (1|exp_name/id), means, family = poisson)
+modB_pois_cat.c <- glmer(as.integer(billberry_fungi) ~ real_treat+Latitud.s + (1|exp_name/id), means, family = poisson)
+#summary(modB_pois_cat)
+overdisp_fun(modB_pois_cat)
+```
+
+A treatment effect detected! **LRT = ```r anova(modB_pois_cat, modB_pois_cat.b)$Chisq[2]```, P = ```r anova(modB_pois_cat, modB_pois_cat.b)$'Pr(>Chisq)'[2]```**. And year as well, **LRT = ```r summary(modB_pois_cat)$coefficients[2,3]^2```, P = ```r summary(modB_pois_cat)$coefficients[2,4]```. There is no effect of latitude, P= ```r summary(modB_pois_cat)$coefficients[7,4]```.  
+
+Now lets plot this.
+
+```{r echo=FALSE, results='hide',message=FALSE}
+# Define groups to predict means for
+newDat <- data.frame("real_treat" = rep(levels(means$real_treat), 2), "year" =rep(levels(means$year), each=length(levels(means$real_treat))),
+                  "Latitud.s" = 0)
+# Predict means
+newDat$means <- predict(modB_pois_cat, newDat, re.form=NA, type = "response")
+seLim <- easyPredCI(modB_pois_cat, newDat[,-ncol(newDat)])
+newDat <- cbind(newDat,seLim)
+
+#plot
+library(ggplot2)
+ggplot(newDat, aes(x=real_treat, y=means, fill=year)) + 
+    geom_bar(width = 0.75, position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=lwr, ymax=upr),
+                  width=.1,                    # Width of the error bars
+                  position=position_dodge(.8)) +
+  ylab(expression("No of infections per 0.25 m"^-2)) +
+  xlab("TREATMENTS") +
+ ggtitle("Treatment effetcs on fungus infection in billberry")
+```
+
+Pretty clear effect of nitrogen! We havent taken plant cover into account (e.g. normalize with percent cover) but that will only make the N effect stronger since N treatments have lower plant cover.
+Note that these SEs are a bit anti-conservative.
+
+The year*treatment effect had no relevance at all here.
+
+#Cowberry
+
+```{r echo=FALSE, results='hide',message=FALSE}
+full_dat$thin <- ifelse(grepl("thinning", full_dat$real_treat), "thin", "no_thin")
+full_dat$N <- ifelse(grepl("N", full_dat$real_treat), "Nxtra", "no_N")
+full_dat$P <- ifelse(grepl("P", full_dat$real_treat), "Pxtra", "no_P")
+full_dat$id <- factor(paste(full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
+full_dat$idd <- factor(paste(full_dat$year, full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
+full_dat$iddd <- factor(1:nrow(full_dat))
+full_dat$year <- factor(full_dat$year) # years as categories
+full_dat$Latitud.s <- scale(full_dat$Latitud, scale = FALSE) # centralize latitude so means are given for mean latitude (so mid sweden)
+
+#Grangärde has a different treatment: Severe thinning + N. We remove it for to keep it simple.
+full_dat2 <- full_dat[!(full_dat$real_treat == "severe_thinning+N"),]
+full_dat2 <- droplevels(full_dat2)
+
+# TEST med mcmcglmm which confirms glmer results
+#library(MCMCglmm)
+#prior<-list(G = list(G1 = list(V = diag(1), nu = 0.002), G2 = list(V = diag(1), nu = 0.002),
+#                     G3 = list(V = diag(1), nu = 0.002)))
+#mm <- MCMCglmm(cowberry_fungi ~ year+real_treat+Latitud.s,
+#               random = ~exp_name + id + idd, data = full_dat,   
+#              family = "poisson", nitt = 130000, thin = 10, burnin = 3000,pl = TRUE)
+#summary(mm)
+
+modC_pois_cat <- glmer(cowberry_fungi ~ year+real_treat+Latitud.s + (1|exp_name)+ (1|id)+ (1|idd)+ (1|iddd), full_dat2, family = poisson)
+modC_pois_cat.b <- glmer(cowberry_fungi ~ year+Latitud.s + (1|exp_name)+ (1|id)+ (1|idd)+ (1|iddd), full_dat2, family = poisson)
+
+#summary(modC_pois_cat, cor=FALSE)
+
+#lets go with log for now
+#library(lme4)
+#modC_fun_cat <- lmer(log(cowberry_fungi+0.1) ~ year+real_treat+Latitud.s + (1|exp_name/id), means)
+#summary(modC_fun_cat)
+
+#modC_fun_cat <- lme(cowberry_fungi+0.1 ~ year+real_treat+Latitud.s, random= ~ 1|exp_name/id, means,   weights = varPower(form =~fitted(.)) ,control=list(maxIter=1000,opt = "optim") )
+
+#library(lme4)
+#modC_pois_cat <- glmer(cowberry_fungi ~ year+real_treat+Latitud.s + (1|exp_name/id), means, family = poisson)
+#modC_pois_cat.b <- glmer(as.integer(cowberry_fungi) ~ year+Latitud.s + (1|exp_name/id), means, family = poisson)
+#modC_pois_cat.c <- glmer(as.integer(cowberry_fungi) ~ real_treat+Latitud.s + (1|exp_name/id), means, family = poisson)
+#summary(modC_pois_cat2)
+#overdisp_fun(modC_pois_cat2) #underdispersion, so P-values are conservative
+
+#summary(modC_log_cat)
+```
+
+There is a treatment effect **LRT = ```r anova(modC_pois_cat, modC_pois_cat.b)$Chisq[2]```, P = ```r anova(modC_pois_cat, modC_pois_cat.b)$'Pr(>Chisq)'[2]```** but somewhat weird and mainly driven by no_thinned + N (which we have very few data points for). But NO year effect for cowberry. There is, in contrast to billberry, an effect of latitude, infection incidence increases with ~ ```r round(exp(fixef(modC_pois_cat)[7])-1,2)*100``` % per degree north.
+
+Now lets plot this.
+
+```{r echo=FALSE, results='hide',message=FALSE}
+# Define groups to predict means for
+newDat <- data.frame("real_treat" = rep(levels(means$real_treat), 2), "year" =rep(levels(means$year), each=length(levels(means$real_treat))),
+                  "Latitud.s" = 0)
+# Predict means
+#newDat$means <- predict(modC_pois_cat, newDat,re.form=NA)
+newDat$means <- predict(modC_pois_cat, newDat,re.form=NA, type = "response")
+seLim <- easyPredCI(modC_pois_cat, newDat[,-ncol(newDat)])
+newDat <- cbind(newDat,seLim)
+
+# #boot CI
+# predFun <- function(fit) {
+#     predict(fit,newDat[,-ncol(newDat)], re.form=NA)
+# }
+# bb<-bootMer(modC_pois_cat,FUN=predFun,nsim=2)
+# bb <- bootMer(modC_pois_cat, nsim=2, FUN=predFun,seed=101, use.u=TRUE, .progress="txt")
+
+#plot
+library(ggplot2)
+ggplot(newDat, aes(x=real_treat, y=means, fill=year)) + 
+    geom_bar(width = 0.75, position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=lwr, ymax=upr),
+                  width=.1,                    # Width of the error bars
+                  position=position_dodge(.8)) +
+
+  ylab(expression("No of infections per 0.25 m"^-2)) +
+  xlab("TREATMENTS") +
+ ggtitle("Treatment effetcs on fungus infection in cowberry")
+
+# Relationship cover and infection rate
+ggplot(means, aes(y=as.integer(billberry_fungi), x=cowberry_cover,means)) +
+  geom_point() + ylab(expression("No of infections per 0.25 m"^-2)) + xlab("Cover billberry (%)")+
+ ggtitle("Correlation between fungus infection and billberry cover")
+
+ggplot(means, aes(y=as.integer(cowberry_fungi), x=cowberry_cover,means)) +
+  geom_point() + ylab(expression("No of infections per 0.25 m"^-2)) + xlab("Cover cowberry (%)")+
+ ggtitle("Correlation between fungus infection and cowberry cover")
+
+```
+
+An effect of thinning alone. There is a weird nitrogen effect in absence of thinning. Small sample size here so I a bit uncertain. We havent taken plant cover into account (e.g. normalize with percent cover) and that may play a role here.
+Note that these SEs are a bit anti-conservative.
+
+The year*treatment effect had no relevance at all here.
+
+##Conclusion
+Thinning has a positive effect on berry production and nitrogen a negative. Nitrogen increases fungi infection in billberry but not cowberry. Thinning increases infection in cowberry and infection rate increases with latitude.
