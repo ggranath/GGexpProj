@@ -1,0 +1,212 @@
+---
+title: "GLMM predictions - Poisson"
+author: "Gustaf Granath"
+date: "August 30, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## What is the problem?
+Plotting raw data can be misleading and not very informative when we have complex models. A "better"" way to visulize and communicate results are model predictions with associated unceartainty. However, this is not trivial for mixed-models and particulary for GLMMs. Here I illustrate an example with Poisson distribution. 
+
+First I simulate a data set with overdispersion. Code to simulate is taken from
+Harrison, Xavier (2014): Overdispersion and Observation-Level Random Effect Simulation Data. figshare. 
+https://dx.doi.org/10.6084/m9.figshare.1144471.v3
+
+```{r}
+# 	Data Generation - 
+###############
+set.seed(1)
+#Random Intercept 
+intercept.od<--0.5
+intercept.od.sd<-0.5
+n.pops.od<-10 # 10 populations
+n.ind.od<-50 # 50 in each population
+popid.od<-gl(n.pops.od,n.ind.od )
+
+#Slope Vector
+treat.slope.od<-0.25 # Treatment effect (log scale)
+
+###### Number of simulations
+nsim2<-100
+
+# Overdispersion, sqrt(variance)
+epsvals<- sqrt(0.55)
+
+#Treatmeant Covariates
+treat <- rep(c("a", "b"), 10, each=25)#
+			
+#Data
+data2 <- data.frame(popid.od, treat, obs=factor(1:(n.pops.od*n.ind.od)))
+#simulate the response (off)
+set.seed(1)
+library(lme4)
+data2$off <- simulate(~treat+(1|popid.od)+ (1|obs), newdata=data2, newparams=list(theta=c(epsvals,intercept.od.sd), beta=c(intercept.od, treat.slope.od)), family=poisson)[[1]]
+
+# Run model with obervation-level random effect to handle overdispersion
+m.glmer <- glmer(off ~ treat+(1|popid.od)+(1|obs),family=poisson,data=data2)
+summary(m.glmer)
+
+# Or with MCMCglmm
+library(MCMCglmm)
+m.mc <- MCMCglmm(off ~ treat, random= ~ popid.od, data=data2, family = "poisson",  
+                  pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, nitt = 30000, verbose = FALSE)
+summary(m.mc)
+#Almost identical to the glmer results
+```
+We have a two very similar model results, so how do we get illustrate the predicted treatments means?
+The raw means are 
+```r  aggregate(off ~ treat, data2, mean)```
+
+Lets start with population level predictions.
+```{r}
+# First create a data set with our two treatment levels
+set.seed(1)
+newdat <- data.frame(treat=c("a", "b"), obs=c(1000,2000), popid.od = c(1000,2000))
+
+# Population level prediction
+glmer.no.marg <- predict(m.glmer, newdata=newdat, re.form=NA, type="response")
+```
+These values are low compared to the raw means. This is expected though. To quote the MCMCglmm course notes, "the expectation of the response variable y is different from the linear predictor if we wish to average over the residuals" [MCMCglmm course notes p.45-46](https://cran.r-project.org/web/packages/MCMCglmm/vignettes/CourseNotes.pdf). In the Poisson model random effects are not additative on the response scale, $E[{\bf y}] = \textrm{exp}({\bf X}{\bm \beta}+{\bf Z}{\bf u}+{\bf e})$. This complicates things when move between link scale and response scale, see e.g. [Fig 2.5 in MCMCglmm course notes](https://cran.r-project.org/web/packages/MCMCglmm/vignettes/CourseNotes.pdf). To get predictions closer to the raw means we can marginalise over random effects, including the observation-level effect that act as a residual term (i.e. overdispersion).
+
+```{r}
+marg.res <- predict(m.glmer, re.form=~(1|popid.od) + (1|obs), type="response")
+aggregate(marg.res ~ treat, data2, mean)
+```
+Much better! We can also do this manually for each treatment level. According to [MCMCglmm course notes p. 46](https://cran.r-project.org/web/packages/MCMCglmm/vignettes/CourseNotes.pdf) we should add the $0.5*\sigma^{2})$ ($\sigma^{2}$ is the sum of the variance components) to the fixed effect estiamte. 
+
+```{r}
+#treatment level A
+glmer.all.marg.treatA <- exp(fixef(m.glmer)[1] + 0.5*(VarCorr(m.glmer)$obs[1]+VarCorr(m.glmer)$popid.od[1]))
+#treatment level B
+glmer.all.marg.treatB <-exp(fixef(m.glmer)[1]+fixef(m.glmer)[2] + 0.5*(VarCorr(m.glmer)$obs[1]+VarCorr(m.glmer)$popid.od[1]))
+#easyPredCI(m.glmer, newdat)
+
+# Numbers looks good now. What if we only marginalise over the residual term?
+glmer.resid.marg.treatA <- exp(fixef(m.glmer)[1] + 0.5*VarCorr(m.glmer)$obs[1])
+glmer.resid.marg.treatB <- exp(fixef(m.glmer)[1]+fixef(m.glmer)[2] + 0.5*VarCorr(m.glmer)$obs[1])
+# The difference we see is the effect of random pop variable. 
+
+#We can plot the different means.
+library(ggplot2)
+raw <- aggregate(off ~ treat, data2, mean)
+pred.dat <- data.frame(treat= raw[,1],Prediction = c(raw[,2], c(glmer.all.marg.treatA, glmer.all.marg.treatB, glmer.resid.marg.treatA, glmer.resid.marg.treatB, glmer.no.marg)), type = rep( c("Raw data", "Random eff marginalised", "Obs-level marg.", "No terms marginalised"), each=2))
+ggplot(pred.dat, aes(y = Prediction, x = treat, fill = type)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  ylim(c(0,1.2))
+```
+Lets try this with the MCMCglmm model. However, What about confidence intervals?
+```{r}
+newdat$off <- 0 # predict.MCMCglmm requires this.
+predict(m.mc, newdata=newdat, marginal=NULL, posterior="all", type="response")
+# Ouch, error msg. This should marginalise over all random effects, including the observation-level effetc that is called "units" in MCMCglmm. Not sure why it doesnt work. Lets try with only the pop effect.
+predict(m.mc, newdata=newdat, marginal=~popid.od, posterior="all", type="response")
+# Works but prediction higher than raw data. This is weird and the predicted values do not change if I change pop or obs numbers in the new data set, and remain the same when I tun it again.
+
+# Lets try with the original data set instead.
+marg.res.mc <- predict(m.mc, marginal=NULL, posterior="all", type="response")
+(aggregate(marg.res.mc ~ treat, data2, mean))
+# Now the results make more sense. Very similar to the raw means.
+
+# We can try to replicate this by hand
+(a.marg <- exp(mean(m.mc$Sol[,1] + 0.5*rowSums(m.mc$VCV)))) # treat a
+(b.marg <-exp(mean(rowSums(m.mc$Sol[,1:2]) + 0.5*rowSums(m.mc$VCV)))) # treat b
+
+exp(mean(m.mc$Sol[,1] + 0.5*m.mc$VCV[,2])) # treat a
+exp(HPDinterval(m.mc$Sol[,1] + 0.5*m.mc$VCV[,2])) # treat a
+
+# Similar results to above but not identical. The latte, by hand, results here should be "correct" according to the course notes and Im not sure how it can be replicated using the predict() function.
+
+#Again we can try with only marginalising over the residual effect.
+(a.marg.res <- exp(mean(m.mc$Sol[,1] + 0.5*m.mc$VCV[,2]))) # treat a
+(b.marg.res <- exp(mean(rowSums(m.mc$Sol[,1:2]) + 0.5*m.mc$VCV[,2]))) # treat b
+# As we expected, lower values.
+
+#exp(HPDinterval(rowSums(m.mc$Sol[,1:2]) + 0.5*m.mc$VCV[,2])) # treat b
+#exp(HPDinterval(as.mcmc(rowSums(m.mc$Sol[,1:2])))) # treat b
+#exp(HPDinterval(m.mc$Sol[,1])) # treat b
+
+# Lets put it all together and plots
+(a.nomarg.res <- exp(mean(m.mc$Sol[,1]))) # treat a
+(b.nomarg.res <- exp(mean(rowSums(m.mc$Sol[,1:2])))) # treat b
+
+pred.dat[9:14,2]  <- c(a.nomarg.res,b.nomarg.res,a,b,a.marg.res,b.marg.res)
+pred.dat[9:14,1]  <- rep(c("a", "b"),3)
+pred.dat[9:14,3] <- rep(c("No terms marginalised", "Random eff marginalised", "Obs-level marg."),each=2)
+pred.dat$model <- c(rep("data",2), rep("glmer",6), rep("MCMCglmm",6))
+
+# Lets plot again
+ggplot(pred.dat, aes(y = Prediction, x = treat, fill = type)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  ylim(c(0,1.2)) +
+  facet_wrap(~model)
+
+```
+
+
+```{r}
+exp(fixef(m.glmer)[1]+fixef(m.glmer)[2] + 0.5*(VarCorr(m.glmer)$obs[1]+VarCorr(m.glmer)$popid.od[1])) #BEST!
+
+set.seed(1)
+newdat <- data.frame(treat=c("a", "b"), obs=c(1000,2000), popid.od = c(1000,2000))
+# Predict population means
+predict(m.glmer, newdata=newdat, re.form=NA, type="response")
+
+# Low predictions if compared to raw means
+aggregate(off ~ treat, data2, mean)
+
+# Now condition on all random effects
+data2$ss <- predict(m.glmer, re.form=~(1|popid.od) + (1|obs), type="response", allow.new.levels=TRUE) 
+aggregate(ss ~ treat, data2, mean)
+
+data2$dd 
+ee <- simulate(m.glmer ,re.form=NA,  allow.new.levels=TRUE, nsim=1000)
+ww <- lapply(ee, FUN= function (x) c(mean(x[1:90]), mean(x[91:180])))
+rowMeans(as.data.frame(ww))          
+
+sfun1 <- function(x) {
+    simulate(x,newdata=newdat,re.form=~0,
+             allow.new.levels=TRUE)[[1]]
+}
+sfun2 <- function(x) {
+    simulate(x,newdata=newdat,re.form=~0, cond.sim=FALSE,
+             allow.new.levels=TRUE)[[1]]
+}
+
+b2 <- bootMer(m.glmer, FUN=sfun2, nsim=1000, seed=101)
+colMeans(b1$t)
+
+sims <- matrix(NA, ncol=2, nrow=2000)
+for (i in 1:2000) {
+  sims[i,] <- simulate(m.glmer, newdata=newdat, re.form=NA,
+             allow.new.levels=TRUE)[[1]]
+}
+colMeans(sims)
+quantile(sims[,2],c(0.025,0.975))
+
+m.mc <- MCMCglmm(off ~ treat, random= ~ popid.od, data=data2, family = "poisson",  
+                  pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, nitt = 25000)
+summary(m.mc)
+newdat$off <- 0
+predict(m.mc, newdata=newdat, marginal=NULL, posterior="mean", type="response")
+predict(m.mc, marginal=~units, posterior="mean", type="response")
+
+predict(m.mc, newdata=newdat, marginal=NULL, posterior="all", type="response", interval = "confidence")
+mean(exp(m.mc$Sol[,1]+m.mc$Sol[,2] + 0.5*rowSums(m.mc$VCV)))
+mean(exp(m.mc$Sol[,1] + 0.5*m.mc$VCV[,2]))
+    
+aggregate(off ~ treat, data2, mean)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
