@@ -9,7 +9,8 @@ output: pdf_document
 #Organize the data so we get the righ treatments and some add-on info like latitud.
 dat <- read.csv("GG_exp_2014_2015.csv")
 dat <- read.csv("gg_soil_depths.csv")
-dat <- read.csv("tea_decomp.csv")
+#dat <- read.csv("tea_decomp.csv")
+dat <- read.csv("tea_decomp_and_soil_chem.csv")
 
 tre <- read.csv("gg_treat_table.csv")
 #treat <- unique(dat[, c("no_exp", "plot", "region", "treatment")])
@@ -29,6 +30,19 @@ dat <- droplevels(dat)
 full_dat <- (merge(dat, tre, by = c("region", "treatment") ))
 full_dat <- (merge(full_dat, info, by = c("no_exp") ))
 full_dat <- droplevels(full_dat)
+
+# If we use raw data for modelling (poisson) #
+full_dat$thin <- ifelse(grepl("thinning", full_dat$real_treat), "thin", "no_thin")
+full_dat$N <- ifelse(grepl("N", full_dat$real_treat), "Nxtra", "no_N")
+full_dat$P <- ifelse(grepl("P", full_dat$real_treat), "Pxtra", "no_P")
+full_dat$id <- factor(paste(full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
+#full_dat$idd <- factor(paste(full_dat$year, full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
+#full_dat$iddd <- factor(1:nrow(full_dat))
+full_dat$year <- factor(full_dat$year) # years as categories
+full_dat$Latitud.s <- scale(full_dat$Latitud, scale = FALSE) # centralize latitude so means are given for mean latitude (so mid sweden)
+
+
+###FIRST STOP HERE
 
 # tea decomposition
 full_dat$green <- (full_dat$Green..g. - full_dat$after_green)/full_dat$Green..g.
@@ -133,6 +147,75 @@ ggplot(lsplot, aes(x=real_treat, y=lsmean, group = region, color = region)) +
 library(multcomp)
 summary(glht(mod, linfct = mcp(real_treat = "Tukey")))
 
+
+# soil chem ####
+# N
+site_means <- aggregate(N_percent ~ no_exp + real_treat, full_dat, mean)
+site_means$no_exp <- factor(site_means$no_exp)
+site_means <- (merge(site_means, info[, c("no_exp", "Latitud", "Experiment_namn")], by = c("no_exp") )) #add latitude
+treat_means <- aggregate(N_percent ~ real_treat, site_means, mean)
+treat_means$se <- aggregate(N_percent ~ real_treat, site_means, FUN = function(x) sd(x)/sqrt(length(x)) )$N_percent
+library(ggplot2)
+ggplot(treat_means, aes(x=real_treat, y=N_percent)) + 
+     geom_errorbar(aes(ymin=N_percent-se, ymax=N_percent+se), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=14))
+
+# Mangan
+site_means <- aggregate(Mn_mg_kg ~ no_exp + real_treat, full_dat, mean)
+site_means$no_exp <- factor(site_means$no_exp)
+site_means <- (merge(site_means, info[, c("no_exp", "Latitud", "Experiment_namn")], by = c("no_exp") )) #add latitude
+treat_means <- aggregate(Mn_mg_kg ~ real_treat, site_means, mean)
+treat_means$se <- aggregate(Mn_mg_kg ~ real_treat, site_means, FUN = function(x) sd(x)/sqrt(length(x)) )$Mn_mg_kg
+library(ggplot2)
+ggplot(treat_means, aes(x=real_treat, y=Mn_mg_kg)) + 
+     geom_errorbar(aes(ymin=Mn_mg_kg-se, ymax=Mn_mg_kg+se), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=14))
+
+library(ggplot2)
+ggplot(full_dat, aes(x=Cu_mg_kg, y=C_percent)) +
+     geom_smooth(method="lm") +
+     geom_point() +
+     theme(axis.text=element_text(size=14)) +
+  facet_wrap(~Site)
+
+# C:N
+full_dat$cn <- full_dat$C_percent/full_dat$N_percent
+site_means <- aggregate(cn ~ no_exp + real_treat, full_dat, mean)
+site_means$no_exp <- factor(site_means$no_exp)
+site_means <- (merge(site_means, info[, c("no_exp", "Latitud", "Experiment_namn")], by = c("no_exp") )) #add latitude
+treat_means <- aggregate(cn ~ real_treat, site_means, mean)
+treat_means$se <- aggregate(cn ~ real_treat, site_means, FUN = function(x) sd(x)/sqrt(length(x)) )$cn
+library(ggplot2)
+ggplot(treat_means, aes(x=real_treat, y=cn)) + 
+     geom_errorbar(aes(ymin=cn-se, ymax=cn+se), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=14))
+
+# N:P
+full_dat$np <- full_dat$N_percent/full_dat$P_mg_kg
+site_means <- aggregate(np ~ no_exp + real_treat, full_dat, mean)
+site_means$no_exp <- factor(site_means$no_exp)
+site_means <- (merge(site_means, info[, c("no_exp", "Latitud", "Experiment_namn")], by = c("no_exp") )) #add latitude
+treat_means <- aggregate(np ~ real_treat, site_means, mean)
+treat_means$se <- aggregate(np ~ real_treat, site_means, FUN = function(x) sd(x)/sqrt(length(x)) )$np
+library(ggplot2)
+ggplot(treat_means, aes(x=real_treat, y=np)) + 
+     geom_errorbar(aes(ymin=np-se, ymax=np+se), width=.01) +
+     geom_line() +
+     geom_point() +
+     theme(axis.text=element_text(size=14))
+
+ggplot(site_means, aes(x=Latitud, y=np, colour=real_treat)) + 
+     geom_point() +
+     theme(axis.text=element_text(size=14)) +
+     geom_smooth(method="lm", formula = y ~ poly(x, 2), fill=NA)
+
+
 # soil depth
 site_means <- aggregate(SOL_depth_mm ~ no_exp + real_treat, full_dat, mean)
 site_means$no_exp <- factor(site_means$no_exp)
@@ -175,20 +258,11 @@ mod$sigma*
       coef(mod$modelStruct$varStruct,
           uncons = FALSE, allCoef = TRUE)
 
-# If we use raw data for modelling (poisson)
-full_dat$thin <- ifelse(grepl("thinning", full_dat$real_treat), "thin", "no_thin")
-full_dat$N <- ifelse(grepl("N", full_dat$real_treat), "Nxtra", "no_N")
-full_dat$P <- ifelse(grepl("P", full_dat$real_treat), "Pxtra", "no_P")
-full_dat$id <- factor(paste(full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
-full_dat$idd <- factor(paste(full_dat$year, full_dat$exp_name, full_dat$real_treat, sep = "_" ) ) #make id for the repeated measurement structure.
-full_dat$iddd <- factor(1:nrow(full_dat))
-full_dat$year <- factor(full_dat$year) # years as categories
-full_dat$Latitud.s <- scale(full_dat$Latitud, scale = FALSE) # centralize latitude so means are given for mean latitude (so mid sweden)
 
 
 #function for SEs of poisson models
 #from Ben Bolkers documents
-easyPredCI <- function(model,newdata,alpha=0.05) {
+easyPredCI <- function(model,newdata,alpha=0.05, pred=FALSE) {
     ## baseline prediction, on the linear predictor (logit) scale:
     pred0 <- predict(model,re.form=NA,newdata=newdata)
     ## fixed-effects model matrix for new data
@@ -196,7 +270,8 @@ easyPredCI <- function(model,newdata,alpha=0.05) {
                    newdata)
     beta <- fixef(model) ## fixed-effects coefficients
     V <- vcov(model)     ## variance-covariance matrix of beta
-    pred.se <- sqrt(diag(X %*% V %*% t(X))) ## std errors of predictions
+    if(pred) {pred.se <- sqrt(diag(X %*% V %*% t(X)) + VarCorr(model)$idd[1])} ## std errors of predictions
+      else {pred.se <- sqrt(diag(X %*% V %*% t(X)))}
     ## inverse-link (logistic) function: could also use plogis()
     linkinv <- model@resp$family$linkinv
     ## construct 95% Normal CIs on the link scale and
@@ -228,7 +303,7 @@ overdisp_fun <- function(model) {
 ```
 
 ```{r}
-#Make simple map over sites in sweden
+#Make simple map over sites in sweden ####
 # loading the required packages
 library(ggplot2)
 library(ggmap)
@@ -242,10 +317,11 @@ map.gg <- get_map(location = c(lon = mean(df$V1), lat = mean(df$V2)), zoom = 4,
 
 # plotting the map with some points on it
 ggg.map <- ggmap(map.gg) +
-  geom_point(data = df, aes(x = V1, y = V2, fill = "red", alpha = 0.8), size = 5, shape = 21) +
+  geom_point(data = df, aes(x = V1, y = V2, fill = "red", alpha = 0.8), size = 3, shape = 21) +
   guides(fill=FALSE, alpha=FALSE, size=FALSE)
 ggsave("gggMap.png")
 
+# Part 2. means and sums calculations ####
 #We start with calculating the means for each site x treatment combination for both years. We also add the treatments as N, thinning and P.
 
 means <- aggregate(cbind(billberry_fruits, billberry_cover, billberry_fungi, billberry_herbivory,
@@ -260,14 +336,38 @@ means$N <- ifelse(grepl("N", means$real_treat), "Nxtra", "no_N")
 means$P <- ifelse(grepl("P", means$real_treat), "Pxtra", "no_P")
 
 #Or treat fruits as total count
-sums <- aggregate(cbind(billberry_fruits, billberry_fungi, billberry_herbivory,
-                          cowberry_fruits, cowberry_fungi, cowberry_herbivory) ~ 
+sums <- aggregate(cbind(billberry_fruits, billberry_fungi, billberry_herbivory, billberry_cover,
+                          cowberry_fruits, cowberry_fungi, cowberry_herbivory, cowberry_cover) ~ 
                       Latitud + region + year + exp_name + real_treat, full_dat, sum)
-sums$thin <- ifelse(grepl("thinning", means$real_treat), "thin", "no_thin")
-sums$N <- ifelse(grepl("N", means$real_treat), "Nxtra", "no_N")
-sums$P <- ifelse(grepl("P", means$real_treat), "Pxtra", "no_P")
+sums$thin <- factor(ifelse(grepl("thinning", sums$real_treat), "thin", "no_thin"))
+sums$N <- factor(ifelse(grepl("N", sums$real_treat), "Nxtra", "no_N"))
+sums$P <- factor(ifelse(grepl("P", sums$real_treat), "Pxtra", "no_P"))
 sums$Latitud.s <- scale(sums$Latitud, scale=FALSE)
 #
+
+# General stats
+# means
+aggregate(cbind(billberry_cover, billberry_fungi, billberry_herbivory,
+                          cowberry_cover, cowberry_herbivory) ~
+                       year, full_dat, mean)
+
+library(dplyr)
+dd <- means %>% 
+  group_by(year) %>% 
+  summarise_at(vars(billberry_cover, billberry_fungi, billberry_herbivory,
+                          cowberry_cover, cowberry_herbivory),
+               funs(mean, min, max)) %>%
+  as.data.frame()
+dd
+
+# per m2
+ee <- means %>% 
+  group_by(year) %>% 
+  summarise_at(vars(billberry_fruits, cowberry_fruits, cowberry_fungi),
+               funs(mean, median, min, max)) %>%
+  as.data.frame()
+ee*4
+
 
 #Grangärde has a different treatment: Severe thinning + N. We remove it for to keep it simple.
 means <- means[!(means$real_treat == "severe_thinning+N"),]
@@ -275,6 +375,9 @@ means <- droplevels(means)
 
 #Overview treatments and sample size
 treat.n <- table(means[,c("thin","N", "P")])
+
+### STOP PART 2 ###
+
 ```
 
 #Berries
@@ -285,7 +388,7 @@ We can plot the results for each site.
 library(lattice)
 xyplot(billberry_fruits ~ real_treat|exp_name, groups = year, means, main ="Billberry",type = c("p","l"), auto=TRUE, xlab="",
        scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
-xyplot(cowberry_fruits ~ real_treat|exp_name, groups = year, means, main ="Cowberry",type = c("p","l"), auto=TRUE, xlab="",
+xyplot(cowberry_fruits ~ real_treat|exp_name, groups = year, sums, main ="Cowberry",type = c("p","l"), auto=TRUE, xlab="",ylim=c(0,100),
        scales=list( x=list(labels = c("No \nthin", "No \nthin+N", "thin","thin+\nN","thin+\nNP"))))
 ```
 
@@ -315,18 +418,615 @@ Variance increases with the response so we need to deal with that. Im applying a
 library(lme4)
 full_dat2 <- full_dat # here you can remove the severe thin+N
 sum(full_dat2[full_dat2$billberry_fruits == "0","billberry_cover"] == 0) / length(full_dat2[full_dat2$billberry_fruits == "0","billberry_cover"]) # % of 0 berries that are due to no cover
+prior = list(R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=1, nu=0.002, alpha.mu=0, alpha.V=625^2), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2),
+                    G3=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
 
-#aggregated data
-library(lme4)
-sums$area <- 14*0.25
+hist(full_dat$cowberry_fruits, breaks=100, xlim=c(0,99))
+bill.mc <- MCMCglmm(cowberry_fruits ~ year*N*thin + year*P + Latitud.s, random = ~exp_name + id + idd, data=full_dat, family = "poisson",  nitt = 80000, burnin = 15000, thin=25, pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(bill.mc)
+aggregate(cowberry_fruits ~ year*N*thin+year*P, full_dat, mean)
+
+# PART 3. fruit analyses, aggregated data ####
 sums$id <- factor(paste(sums$real_treat,sums$exp_name, sep="_"))
-sums$idd <- factor(1:nrow(sums))
-modB_pois_cat_fru.b <- glmer(billberry_fruits ~ offset(log(area)) + year*real_treat + Latitud.s + (year-1|exp_name)+ (1|id) + (1|idd), sums, family = poisson)
-overdisp_fun(modB_pois_cat_fru.b)
-summary(modB_pois_cat_fru.b)
-AIC((modB_pois_cat_fru.b))
 
+#lmer
+# sums$area <- 14*0.25
+# sums$idd <- factor(1:nrow(sums))
+# set.seed(101)
+# library(lme4)
+# modB_pois_cat_fru.b11 <- glmer(billberry_fruits ~ Latitud.s + year*N*thin+year*P +  (year|exp_name)+ (1|id) + (1|idd), 
+#                                sums, family = poisson)
+# overdisp_fun(modB_pois_cat_fru.b)
+# summary(modB_pois_cat_fru.b11)
+# AIC((modB_pois_cat_fru.b))
+# predict(modB_pois_cat_fru.b11, newdata=newDat, re.form=NA, type="response", allow.new.levels=TRUE)
+# 
+# newDat$means <- predict(modB_pois_cat_fru.b, newDat, re.form=NA, type = "response")
+# seLim <- easyPredCI(modB_pois_cat_fru.b, newDat[,-ncol(newDat)], pred=FALSE)
+# newDat/14 <- cbind(newDat,seLim)
+
+#raw means
+raw.means <- aggregate(billberry_cover ~ year*N*thin+year*P, sums, mean)
+
+# MCMCglmm
 library(MCMCglmm)
+# First model not controlling for precent cover
+#sums2 <- sums[!(sums$exp_name=="929Nysund"),] #if removed an effect of latitude
+prior = list( R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=diag(2), nu=0.002, alpha.mu=c(0,0), alpha.V=diag(2)*625^2), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+
+bill.mc <- MCMCglmm(billberry_fruits ~ year*N*thin + year*P + Latitud.s, random = ~idh(year):exp_name + id, 
+                    data=sums, family = "poisson",  nitt = 80000, burnin = 15000, thin=25, pr = TRUE, pl = TRUE,
+                    saveX = TRUE, saveZ = TRUE,  singular.ok=TRUE )
+summary(bill.mc)
+# random slope model with covaraince between intercept and slope only 2 DIC smaller 
+# so a simpler model without covariance is OK as well.
+
+# next model we controll for prcent plant cover. With the offset term we get fruits per percent cover
+B= list(mu = matrix(c(0,0,0,0,0,0,1,0,0,0,0,0),12),V = diag(12)*(10))
+prior = list(B=B, R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=diag(2), nu=0.002, alpha.mu=c(0,0), alpha.V=diag(2)*1000), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+diag(prior$B$V)[7]<-1e-9
+
+#sums2 <- sums[!(sums$exp_name=="929Nysund"),] #if removed an effect of latitude
+bill.con.mc <- MCMCglmm(billberry_fruits ~ year*N*thin + year*P + Latitud.s + log(billberry_cover), random = ~idh(year):exp_name + id, data=sums, family = "poisson",  nitt = 80000, burnin = 15000, thin=25, pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior, singular.ok=TRUE )
+#modB_pois_cat_fru
+summary(bill.con.mc)
+
+#plot effect
+# first without offset
+raw.means <- aggregate(billberry_fruits ~ year*thin*N+year*P, sums, mean)
+newDat <- raw.means[,1:4] 
+newDat$Latitud.s <- 0
+#newDat$area <- 1 # per m2 if offset for area is in the model
+X <- model.matrix(formula(bill.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat)
+res <- apply(bill.mc$Sol[,3:11],1, function (x) x %*% t(X[,-c(1:2)]))
+raw.means$eff <- rowMeans(res)
+cis <- t(apply(res, 1, function (x) HPDinterval(as.mcmc(x))))
+raw.means <- cbind(raw.means, cis)
+colnames(raw.means)[7:8] <- c("lo_95", "up_95")
+lat.eff <- summary(bill.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff) <- colnames(raw.means)[6:8]
+raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
+raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means[,6:8] <- (exp(raw.means[,6:8]))
+
+# then with offset
+raw.means.off <- aggregate(billberry_fruits ~ year*thin*N+year*P, sums, mean)
+newDat.off <- raw.means.off[,1:4] 
+newDat.off$Latitud.s <- 0
+newDat.off$billberry_cover <- 1 # per m2 if offset for area is in the model
+X.off <- model.matrix(formula(bill.con.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat.off)
+res.off <- apply(bill.con.mc$Sol[,3:12],1, function (x) x %*% t(X.off[,-c(1:2)]))
+raw.means.off$eff <- rowMeans(res.off)
+cis.off <- t(apply(res.off, 1, function (x) HPDinterval(as.mcmc(x))))
+raw.means.off <- cbind(raw.means.off, cis.off)
+colnames(raw.means.off)[7:8] <- c("lo_95", "up_95")
+lat.eff.off <- summary(bill.con.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff.off) <- colnames(raw.means.off)[6:8]
+raw.means.off <- rbind(raw.means.off, c(raw.means.off[10,1:5], lat.eff.off) )
+raw.means.off$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means.off[,6:8] <- (exp(raw.means.off[,6:8]))
+
+
+library(ggplot2)
+bill.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
+  geom_hline(yintercept=1, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
+                lwd=0.7, colour="red", width=0, , position=position_nudge(x=0.1)) +
+  geom_point(size=2, pch=21, aes(fill="yellow"), position=position_nudge(x=0.1)) +
+  geom_point(data=raw.means.off[-c(1:2),], aes(x=vars, y=eff, fill="blue"), position=position_nudge(x=-0.1), 
+             size=2, pch=21) +
+  geom_errorbar(data=raw.means.off[-c(1:2),], aes(ymin=lo_95, ymax=up_95), 
+               lwd=0.7, colour="black", width=0, , position=position_nudge(x=-0.1)) +
+  ylim(c(0, 4)) +
+  xlab("") +
+  ylab("Rate ratio") +
+  theme(axis.text.x  = element_text(size=14),
+        axis.text.y  = element_text(size=14)) +
+  coord_flip() +
+  scale_fill_manual(name="Model",values=c("blue", "yellow"), breaks = c("yellow", "blue"), 
+                    labels= c("Overall effect", "Controlling for plant cover")) +
+  theme(legend.justification=c(1,1), legend.position=c(1,1))
+ggsave("bilFig.png", bill.p)  
+##### done billberry
+
+### Now cowberry
+prior = list(R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=diag(1), nu=0.002, alpha.mu=c(0), alpha.V=diag(1)*625^2), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+
+cow.mc <- MCMCglmm(cowberry_fruits ~ year*N*thin + year*P + Latitud.s, 
+                    random = ~ exp_name + id, data=sums, singular.ok=TRUE, family = "poisson",  nitt = 110000,
+                    burnin = 15000, thin=50, pr = TRUE, 
+                    pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(cow.mc)
+# DIC 6 higher without year-specific variances (random slope model) so not needed
+
+B= list(mu = matrix(c(0,0,0,0,0,0,1,0,0,0,0,0),12),V = diag(12)*(10))
+prior = list(B=B,R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=1, nu=0.002, alpha.mu=c(0), alpha.V=diag(1)*625^2), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+diag(prior$B$V)[7]<-1e-9
+
+cow.con.mc <- MCMCglmm(cowberry_fruits ~ year*N*thin + year*P + Latitud.s + log(cowberry_cover+0.5), 
+                    random = ~exp_name + id, data=sums, singular.ok=TRUE, family = "poisson",  nitt = 110000,
+                    burnin = 15000, thin=50, pr = TRUE, 
+                    pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+# modB_pois_cat_fru
+summary(cow.con.mc)
+
+# sums2 <- sums[sums$year == "2014",]
+# cow.glmerA <- glmer(cowberry_fruits ~ N + thin*year +  (1|exp_name)+(1|id)+(1|idd), 
+#                                sums, family = poisson)
+# 
+# summary(cow.glmerA)
+# plot(resid(cow.glmerA, type='pearson') ~ predict(cow.glmerA, re.form=NA) )
+# 
+# overdisp_fun(cow.glmer)
+# dd <- predict(cow.glmer, type='response', newdata=ss[,1:3], re.form=NA)
+# aggregate(dd ~ N+year*thin, sums, mean )
+# ss <- aggregate(cowberry_fruits ~ year*N*thin + year*P, sums, mean )
+# 
+# plot(cow.glmer4, type=c("p"), id = 0.05 )
+# plot(cow.glmer4,  factor(exp_name) ~ resid(., type='pearson'),  abline=c(v=0), lty=2)
+# plot(cow.glmer, resid(., type='pearson') ~ fitted(.) | factor(exp_name), id = 0.05)
+# qqmath(ranef(cow.glmerA, condVar=TRUE))
+# dotplot(ranef(cow.glmerA, condVar=TRUE))
+# plot(cow.glmerA, sqrt(abs(resid(.))) ~ fitted(.), type=c('p', 'smooth'))
+# plot(cow.glmer, resid(.) ~ fitted(.) | exp_name, abline=c(h = 0),  lty = 1,  type = c("p", "smooth")) 
+
+#plot effect
+raw.means <- aggregate(cowberry_fruits ~ year*thin*N+year*P, sums, mean)
+newDat <- raw.means[,1:4] 
+newDat$Latitud.s <- 0
+X <- model.matrix(formula(cow.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat)
+res <- apply(cow.mc$Sol[,3:11],1, function (x) x %*% t(X[,-c(1:2)]))
+raw.means$eff <- rowMeans(res)
+cis <- t(apply(res, 1, function (x) HPDinterval(as.mcmc(x))))
+raw.means <- cbind(raw.means, cis)
+colnames(raw.means)[7:8] <- c("lo_95", "up_95")
+lat.eff <- summary(cow.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff) <- colnames(raw.means)[6:8]
+raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
+raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means[,6:8] <- raw.means[,6:8]
+
+# then with offset
+raw.means.off <- aggregate(cowberry_fruits ~ year*thin*N+year*P, sums, mean)
+newDat.off <- raw.means.off[,1:4] 
+newDat.off$Latitud.s <- 0
+newDat.off$cowberry_cover <- 0.5 # per m2 if offset for area is in the model
+X.off <- model.matrix(formula(cow.con.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat.off)
+res.off <- apply(cow.con.mc$Sol[,3:12],1, function (x) x %*% t(X.off[,-c(1:2)]))
+raw.means.off$eff <- rowMeans(res.off)
+cis.off <- t(apply(res.off, 1, function (x) HPDinterval(as.mcmc(x))))
+raw.means.off <- cbind(raw.means.off, cis.off)
+colnames(raw.means.off)[7:8] <- c("lo_95", "up_95")
+lat.eff.off <- summary(cow.con.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff.off) <- colnames(raw.means.off)[6:8]
+raw.means.off <- rbind(raw.means.off, c(raw.means.off[10,1:5], lat.eff.off) )
+raw.means.off$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means.off[,6:8] <- raw.means.off[,6:8]
+
+library(ggplot2)
+cow.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
+  geom_hline(yintercept=0, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
+                lwd=0.7, colour="red", width=0, , position=position_nudge(x=0.1)) +
+  geom_point(size=2, pch=21, aes(fill="yellow"), position=position_nudge(x=0.1)) +
+  geom_point(data=raw.means.off[-c(1:2),], aes(x=vars, y=eff, fill="blue"), position=position_nudge(x=-0.1), 
+             size=2, pch=21) +
+  geom_errorbar(data=raw.means.off[-c(1:2),], aes(ymin=lo_95, ymax=up_95), 
+               lwd=0.7, colour="black", width=0, , position=position_nudge(x=-0.1)) +
+  ylim(c(-8, 7)) +
+  xlab("") +
+  ylab("Log rate ratio") +
+  theme(axis.text.x  = element_text(size=14),
+        axis.text.y  = element_text(size=14)) +
+  coord_flip() +
+  scale_fill_manual(name="Model",values=c("blue", "yellow"), breaks = c("yellow", "blue"), 
+                    labels= c("Overall effect", "Controlling for plant cover")) +
+  theme(legend.justification=c(0,1), legend.position=c(0,1))
+ggsave("cowFig.png", cow.p)  
+
+#### done cowberry
+
+# Part 4. plant cover #### 
+# billberry
+sums$id <- factor(paste(sums$real_treat,sums$exp_name, sep="_"))
+library(MCMCglmm)
+prior = list(R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=diag(2), nu=0.002, alpha.mu=c(0,0), alpha.V=diag(2)*625^2), 
+                    G2=list(V=1, nu=1,alpha.mu=0, alpha.V=625^2))) 
+
+sums$billberry_cover2 <- sums$billberry_cover/14
+bill.cov.mc <- MCMCglmm(billberry_cover2 ~ year*N*thin + year*P + Latitud.s, random = ~idh(year):exp_name + id, data=sums, family = "gaussian",  nitt = 80000, burnin = 15000, thin=25, pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior, singular.ok=TRUE )
+summary(bill.cov.mc)
+# No treatment effects and very small effect sizes (<5%)
+
+#plot effect
+raw.means <- aggregate(billberry_cover ~ year*thin*N+year*P, sums, mean)
+newDat <- raw.means[,1:4] 
+newDat$Latitud.s <- 0
+X <- model.matrix(formula(bill.cov.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat)
+res <- apply(bill.cov.mc$Sol[,3:11],1, function (x) x %*% t(X[,-c(1:2)]))
+raw.means$eff <- rowMeans(res)
+cis <- t(apply(res, 1, function (x) HPDinterval(as.mcmc(x))))
+raw.means <- cbind(raw.means, cis)
+colnames(raw.means)[7:8] <- c("lo_95", "up_95")
+lat.eff <- summary(bill.cov.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff) <- colnames(raw.means)[6:8]
+raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
+raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means[,6:8] <- raw.means[,6:8]
+
+library(ggplot2)
+bill.cov.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
+  geom_hline(yintercept=0, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
+                lwd=0.7, width=0) +
+  geom_point(size=4, pch=21, fill="black") +
+  ylim(c(-25, 25)) +
+  xlab("") +
+  ylab("Absolute change (%)") +
+  theme(axis.text.x  = element_text(size=14),
+        axis.text.y  = element_text(size=14),
+        axis.title = element_text(size=14)) +
+  annotate("text", label = "a)", y = -23, x = 9, size = 10) +
+  coord_flip()
+
+##### done billberry
+
+##Now cowberry
+#prior = list(R=list(V=1, nu=0.002), 
+#             G=list(G1=list(V=1, nu=0.002, alpha.mu=c(0), alpha.V=diag(1)*625^2), 
+#                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+
+# values "equally"" spread from 0-100. Gaussian dist not a good option.
+# We use negative-binomial instead
+library(lme4)
+sums$cowberry_cover2 <- sums$cowberry_cover/14
+sums$idd <- 1:NROW(sums)
+cow.cov.nb <- glmer.nb(cowberry_cover2 ~ year*N*thin + year*P + Latitud.s + (1|exp_name) + (1|id), 
+                       data=sums)
+cow.cov.bin <- glmer(cowberry_cover2/100 ~ year*N*thin + year*P + Latitud.s + (1|exp_name) + (1|id) + (1|idd), 
+                       data=sums, family = "binomial", weights = rep(100, NROW(sums)),glmerControl(optimizer="bobyqa"))
+
+cow.cov.bin2 <- glmer(cbind(cowberry_cover,1400-cowberry_cover) ~ year*N*thin + year*P + Latitud.s + (1|exp_name) + (1|id) + (1|idd), data=sums, family = "binomial", glmerControl(optimizer="bobyqa"))
+
+cow.cov.lm <- lmer(cowberry_cover2 ~ year*N*thin + year*P + Latitud.s + (1|exp_name) + (1|id), 
+                       data=sums)
+cow.cov.lm2 <- lmer(sqrt(cowberry_cover2) ~ year*N*thin + year*P + Latitud.s + (1|exp_name) + (1|id), 
+                       data=sums)
+
+cow.cov.lmlog <- lmer(cowberry_cover2 ~ year*N*thin + year*P + Latitud.s + (1|exp_name) + (1|id), 
+                       data=sums)
+
+summary(cow.cov.bin2)
+
+#MCMC version for binomial approach
+prior=list(R=list(V=1, nu=0.002), G=list(G1=list(V=1, nu=1, alpha.mu=0, alpha.V=600^2),
+                                         G2=list(V=1, nu=1, alpha.mu=0, alpha.V=600^2)))
+sums$quad <- 1400
+cow.cov.mc2 <- MCMCglmm(cbind(cowberry_cover,quad-cowberry_cover) ~ year*N*thin + year*P + Latitud.s, 
+                        random = ~exp_name + id, data=sums, singular.ok=TRUE, family = "multinomial2",  
+                        nitt = 110000, burnin = 15000, thin=50, 
+                        pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(cow.cov.mc2)
+predict(cow.cov.mc2)
+
+#MCMC version for normal errors and transformation.
+# Simple so lets us that. Results close to the more "accurate" binomial model which is more
+# complicated to interpret and comapre with the billberry model
+prior=list(R=list(V=1, nu=0.002), G=list(G1=list(V=1, nu=1, alpha.mu=0, alpha.V=625^2),
+                                         G2=list(V=1, nu=1, alpha.mu=0, alpha.V=625^2)))
+sums$cowberry_cover2 <- sums$cowberry_cover/14
+cow.cov.mc <- MCMCglmm(sqrt(cowberry_cover2) ~ year*N*thin + year*P + Latitud.s, random = ~exp_name + id, 
+                   data=sums, family = "gaussian",  nitt = 110000, burnin = 15000,
+                   thin=50, pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(cow.cov.mc)
+summary(cow.cov.mc2)
+
+#plot effect
+raw.means <- aggregate(cowberry_cover2 ~ year*thin*N+year*P, sums, mean)
+newDat <- raw.means[,1:4] 
+newDat$Latitud.s <- 0
+X <- model.matrix(formula(cow.cov.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat)
+res <- apply(cow.cov.mc$Sol[,1:11],1, function (x) x %*% t(X))
+
+# Sqrt tranformed response so for comparison with billberry model (which is untransformed)
+# effect sizes are recalculated on the response scale
+# Effects are calculated but taking the difference beyween treatment groups
+# while contrasts are kept the same
+res_eff1 <- (apply(res, 2, function (x) x[c(3,5,7,9)]^2 - x[1]^2 ))
+res_eff2 <- (apply(res, 2, function (x) x[c(4,6,8,10)]^2 - x[2]^2 ))
+res <- rbind(res_eff1, res_eff2)[c(1,5,2,6,3,7,4,8),] 
+raw.means$eff[1:2] <- 0
+raw.means$eff[3:10] <- rowMeans(res)
+cis <- t(apply(res, 1, function (x) HPDinterval(as.mcmc(x))))
+cis <- rbind(c(0,0),c(0,0), cis)
+raw.means <- cbind(raw.means, cis)
+colnames(raw.means)[7:8] <- c("lo_95", "up_95")
+lat.eff <- summary(bill.cov.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff) <- colnames(raw.means)[6:8]
+raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
+raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means[,6:8] <- raw.means[,6:8]
+
+
+cow.cov.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
+  geom_hline(yintercept=0, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
+                lwd=0.7, width=0) +
+  geom_point(size=4, pch=21, fill="black") +
+  ylim(c(-30, 30)) +
+  xlab("") +
+  ylab("Absolute change (%)") +
+  theme(axis.text.x  = element_text(size=14),
+        axis.text.y  = element_text(size=14),
+        axis.title = element_text(size=14)) +
+  annotate("text", label = "b)", y = -23, x = 9, size = 10) +
+  coord_flip()
+
+#### done cowberry
+
+# Merge plots
+png("cover_plot.png", width=15, height=30, units="cm", res=300)
+grid.arrange(bill.cov.p , cow.cov.p , ncol=1, nrow =2)
+dev.off()
+ggsave("cover_plot.png", width=15, height=30, units="cm", dpi=300)
+
+#### plot effects for neg bin model with glmer
+#plot effect
+raw.means <- aggregate(cowberry_cover2 ~ year*thin*N+year*P, sums, mean)
+newDat <- raw.means[,1:4] 
+newDat$Latitud.s <- 0
+X <- model.matrix(formula(cow.cov.nb, fixed.only=TRUE)[-2],
+                   newDat)
+beta <- fixef(cow.cov.nb) ## fixed-effects coefficients
+    V <- vcov(cow.cov.nb)[3:11,3:11]     ## variance-covariance matrix of beta
+    pred.se <- sqrt(diag(X[,-c(1:2)] %*% V %*% t(X[,-c(1:2)]))) ## std errors of predictions
+
+res <- as.vector(fixef(cow.cov.nb)[3:11] %*% t(X[,-c(1:2)]))
+raw.means$eff <- res
+cis <- cbind(res - 2*pred.se, res + 2*pred.se)
+raw.means <- cbind(raw.means, cis)
+colnames(raw.means)[7:8] <- c("lo_95", "up_95")
+lat.eff <- summary(cow.cov.nb)$coefficients[6,1:2] #latitude effect
+lat.eff <- c(lat.eff[1], lat.eff[1] - lat.eff[2]*2, lat.eff[1] + lat.eff[2]*2)
+names(lat.eff) <- colnames(raw.means)[6:8]
+raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
+raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+
+
+
+# PART 5 Fungal infections #### 
+
+# Both plant analyzed with Poisson. Although bilberry may be better to analyze using binomial because
+# it represents number of subquandrants infected (ie a proportion). However, better with Possion because results can then be compared with cowberry (they are "true" counts, ie shoots infected).
+sums$id <- factor(paste(sums$real_treat,sums$exp_name, sep="_"))
+
+sums$billberry_cover2 <- sums$billberry_cover/14 # calc mean cover
+library(MCMCglmm)
+B= list(mu = matrix(c(0,0,0,0,0,0,1,0,0,0,0,0),12),V = diag(12)*(10))
+prior = list(B=B, R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=diag(2), nu=0.002, alpha.mu=c(0,0), alpha.V=diag(2)*1000), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+diag(prior$B$V)[7]<-1e-9
+
+# offset with cover to account for availabillity
+#bill.fu.mc <- MCMCglmm(billberry_fungi  ~ year*N*thin + year*P + Latitud.s + log(billberry_cover2), 
+#                       random = ~idh(year):exp_name + id, data=sums, family = "poisson",  
+#                       nitt = 80000, burnin = 15000, thin=25, 
+#                       pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+sums$quad <- 1400
+bill.fu.mc <- MCMCglmm(cbind(billberry_fungi, quad-billberry_fungi)  ~ year*N*thin + year*P + Latitud.s + log(billberry_cover2), 
+                       random = ~idh(year):exp_name + id, data=sums, family = "multinomial2",  
+                       nitt = 80000, burnin = 15000, thin=25, 
+                       pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+
+summary(bill.fu.mc) # latitude effect
+
+#plot effect
+raw.means <- aggregate(billberry_fungi ~ year*thin*N+year*P, sums, mean)
+newDat <- raw.means[,1:4] 
+newDat$Latitud.s <- 0
+newDat$billberry_cover2 <- 1
+X <- model.matrix(formula(bill.fu.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat)
+res <- apply(bill.fu.mc$Sol[,3:12],1, function (x) x %*% t(X[,-c(1:2)]))
+raw.means$eff <- rowMeans(res)
+cis <- t(apply(res, 1, function (x) HPDinterval(as.mcmc(x))))
+raw.means <- cbind(raw.means, cis)
+colnames(raw.means)[7:8] <- c("lo_95", "up_95")
+lat.eff <- summary(bill.fu.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff) <- colnames(raw.means)[6:8]
+raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
+raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means[,6:8] <- (exp(raw.means[,6:8]))
+
+library(ggplot2)
+bil.fun.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
+  geom_hline(yintercept=1, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
+                lwd=0.7, width=0) +
+  geom_point(size=4, pch=21, fill="black") +
+  ylim(c(0, 6)) +
+  xlab("") +
+  ylab("Odds ratio") +  # (treatment:control)
+  theme(axis.text.x  = element_text(size=14),
+        axis.text.y  = element_text(size=14),
+        axis.title = element_text(size=14)) +
+  annotate("text", label = "a)", y = 0, x = 9, size = 10) +
+  coord_flip()
+
+# cowberry
+# Number of infected shoots counted Poisson errors are used here. 
+sums$cowberry_cover2 <- sums$cowberry_cover/14 # calc mean cover
+B= list(mu = matrix(c(0,0,0,0,0,0,1,0,0,0,0,0),12),V = diag(12)*(10))
+prior = list(B=B, R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=1, nu=0.002, alpha.mu=0, alpha.V=625^2), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+diag(prior$B$V)[7]<-1e-9
+
+cow.fu.mc <- MCMCglmm(cowberry_fungi  ~ year*N*thin + year*P + Latitud.s + log(cowberry_cover2+0.5), 
+                      random = ~exp_name + id, data=sums, family = "poisson",  nitt = 80000, burnin = 15000,
+                      thin=25, pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+
+summary(cow.fu.mc) # a latitude effect
+
+#plot effect
+raw.means <- aggregate(cowberry_fungi ~ year*thin*N+year*P, sums, mean)
+newDat <- raw.means[,1:4] 
+newDat$Latitud.s <- 0
+newDat$cowberry_cover2 <- 0.5
+X <- model.matrix(formula(cow.fu.mc$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat)
+res <- apply(cow.fu.mc$Sol[,3:12],1, function (x) x %*% t(X[,-c(1:2)]))
+raw.means$eff <- rowMeans(res)
+cis <- t(apply(res, 1, function (x) HPDinterval(as.mcmc(x))))
+raw.means <- cbind(raw.means, cis)
+colnames(raw.means)[7:8] <- c("lo_95", "up_95")
+lat.eff <- summary(cow.fu.mc)$solutions[6,1:3] #latitude effect
+names(lat.eff) <- colnames(raw.means)[6:8]
+raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
+raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
+                    "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
+raw.means[,6:8] <- (exp(raw.means[,6:8]))
+
+library(ggplot2)
+cow.fun.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
+  geom_hline(yintercept=1, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
+                lwd=0.7, width=0) +
+  geom_point(size=4, pch=21, fill="black") +
+  ylim(c(0, 2)) +
+  xlab("") +
+  ylab("Rate ratio") +
+  theme(axis.text.x  = element_text(size=14),
+        axis.text.y  = element_text(size=14),
+        axis.title = element_text(size=14)) +
+  annotate("text", label = "b)", y = 0, x = 9, size = 10) +
+  coord_flip()
+
+# Merge plots
+library(gridExtra)
+png("fungi_plot.png", width=30, height=15, units="cm", res=300)
+grid.arrange(bil.fun.p , cow.fun.p , ncol=2, nrow =1)
+dev.off()
+
+##### done fungi
+
+
+### herbivory
+library(MCMCglmm)
+B= list(mu = matrix(c(0,0,0,0,0,0,1,0,0,0,0,0),12),V = diag(12)*(10))
+prior = list(B=B, R=list(V=1, nu=0.002), 
+             G=list(G1=list(V=diag(2), nu=0.002, alpha.mu=c(0,0), alpha.V=diag(2)*1000), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2))) 
+diag(prior$B$V)[7]<-1e-9
+
+#sums2 <- sums[!(sums$exp_name=="929Nysund"),] #if removed an effect of latitude
+bill.he.mc <- MCMCglmm(billberry_herbivory  ~ year*N*thin + year*P + Latitud.s + log(billberry_cover), 
+                       random = ~idh(year):exp_name + id, data=sums, family = "gaussian",  
+                       nitt = 80000, burnin = 15000, thin=25, 
+                       pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(bill.he.mc) # NO significant effects
+
+B= list(mu = matrix(c(0,0,0,0,0,0,1,0,0,0,0,0),12),V = diag(12)*(10))
+prior = list(B=B, R=list(V=1, nu=0.002), 
+            G=list(G1=list(V=1, nu=0.002, alpha.mu=0, alpha.V=625^2), 
+                    G2=list(V=1, nu=0.002,alpha.mu=0, alpha.V=625^2)))
+diag(prior$B$V)[7]<-1e-9
+
+cow.he.mc <- MCMCglmm(cowberry_fungi  ~ year*N*thin + year*P + Latitud.s + log(cowberry_cover+0.5), 
+                      random = ~exp_name + id, data=sums, family = "gaussian",  
+                      nitt = 80000, burnin = 15000, thin=25, 
+                      pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(cow.he.mc) # NO significant effects
+######end herbivory
+
+
+
+
+## cor
+cr <- sums[,c("billberry_fruits", "cowberry_fruits", "billberry_fungi","cowberry_fungi", "billberry_herbivory",
+        "cowberry_herbivory","billberry_cover", "cowberry_cover")]
+pairs(cr)
+round(cor(cr),digits=2)
+bill.corr.mc <- MCMCglmm(billberry_fruits  ~ billberry_cover*year + billberry_fungi*year + billberry_herbivory*year, random = ~idh(year):exp_name + id, data=sums, family = "poisson",  nitt = 80000, burnin = 15000, thin=25, pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(bill.corr.mc)
+
+cow.corr.mc <- MCMCglmm(cowberry_fruits  ~ cowberry_cover*year + cowberry_fungi*year + cowberry_herbivory*year, random = ~idh(year):exp_name + id, data=sums, family = "poisson",  nitt = 80000, burnin = 15000, thin=25, pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, prior=prior)
+summary(cow.corr.mc)
+
+### end corr
+
+
+
+
+# Define groups to predict means for
+newDat <- raw.means[,1:4] #unique(sums[,c("year", "thin", "N", "P")])
+newDat$Latitud.s <- 0
+newDat$billberry_fruits <- 0
+newDat$exp_name <- 1:nrow(newDat)
+newDat$id <- 1:nrow(newDat)
+mc.pred <- predict.MCMCglmm(bill.mc, newdata=newDat,  marginal=NULL, posterior="mean", type="response", level=0.95)
+newDat <- cbind(newDat, mc.pred)
+
+c.marg <- mean(modB_pois_cat_fru$Sol[,1] + 0.5*rowSums(modB_pois_cat_fru$VCV)) # treat control, link scale
+n.marg <-mean(rowSums(modB_pois_cat_fru$Sol[,1:2]) + 0.5*rowSums(modB_pois_cat_fru$VCV)) # treat N, link scale
+t.marg <-mean(rowSums(modB_pois_cat_fru$Sol[,c(1,3)]) + 0.5*rowSums(modB_pois_cat_fru$VCV)) # treat N, link scale
+nt.marg <-mean(rowSums(modB_pois_cat_fru$Sol[,c(1:3,5)]) + 0.5*rowSums(modB_pois_cat_fru$VCV)) # treat N, link scale
+p.marg <-mean(rowSums(modB_pois_cat_fru$Sol[,c(1,4)]) + 0.5*rowSums(modB_pois_cat_fru$VCV)) # treat N, link scale
+
+raw = mc.mod = exp(c(treat_C=c.marg, treat_N=n.marg, treat_T=t.marg, 
+      treat_NT=nt.marg, treat_P=p.marg))
+predict(modB_pois_cat_fru, newdata=newDat, marginal=NULL, posterior="mean", type="terms")
+
+raw.means <- aggregate(billberry_fruits ~ year*thin*N+year*P, sums, mean)
+X <- model.matrix(formula(modB_pois_cat_fru$Fixed$formula,fixed.only=TRUE)[-2],
+                   newDat)
+res <- apply(modB_pois_cat_fru$Sol[,1:11],1, function (x) x %*% t(X))
+res <- t(res) + 0.5*rowSums(modB_pois_cat_fru$VCV[,2:4])
+data.frame(raw = raw.means, pred = exp(colMeans(res)))
+
+
+sums2 <- cbind(sums, mc.pred)
+  unique(sums2[,c("year", "thin", "N", "P")])
+#plot model estimates
+newDat$treat <- rep(c("control", "N", "thinning", "N+thinning", "N+thinning+P"), each=2)
+library(ggplot2)
+ggplot(newDat, aes(x=treat, y=fit, fill=year)) + 
+    geom_bar(width = 0.75, position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=lwr, ymax=upr),
+                  width=.1,                    # Width of the error bars
+                  position=position_dodge(.8)) +
+  ylab(expression("No of berries per 0.25 m"^2)) +
+  xlab("TREATMENTS") +
+ ggtitle("Treatment effetcs on billberry productioin")
+
+
+
 modB_pois_cat_fru <- MCMCglmm(billberry_fruits ~ year*real_treat+Latitud.s, random = ~us(1+year):exp_name + id, data=sums, family = "poisson",  nitt = 30000, burnin = 5000, pr=TRUE, pl = TRUE)
 summary(modB_pois_cat_fru)
 
@@ -337,13 +1037,13 @@ summary(ad.mod)
 
 
 # sim with mcmcglmm
-mc.pred.sim <- simulate.MCMCglmm(modB_pois_cat_fru, nsim=2000,
+mc.pred.sim <- simulate.MCMCglmm(cow.mc, nsim=2000,
                              posterior="mean", type="response")
 nzeros <- colSums(mc.pred.sim==0)
 par(las=1,bty="l")
 plot(pt <- prop.table(table(nzeros)),
      ylab="Probability")
-(obszero <- sum(sums$billberry_fruits==0))
+(obszero <- sum(sums$cowberry_fruits==0))
 points(obszero,0.005,col="red",pch=16,cex=2)
 ### Average over simulations to get predicted counts
 out <- matrix(NA, ncol=3, nrow=651)
@@ -358,7 +1058,7 @@ for (i in 1:length(cnt)) {
 }
 
 comp <- data.frame(y.mod=as.matrix(out), x=0:650)
-d.raw <- data.frame(y.raw=as.matrix((table(sums$billberry_fruits))), x=as.numeric(rownames(table(sums$billberry_fruits))))
+d.raw <- data.frame(y.raw=as.matrix((table(sums$cowberry_fruits))), x=as.numeric(rownames(table(sums$cowberry_fruits))))
 comp2 <- merge(comp, d.raw, by="x")
 comp2 <- reshape(comp2, direction = "long", varying = list(c(2,5)), times=c("y.mod.1", "y.raw"), v.names = "freq")
 library(ggplot2)
@@ -549,7 +1249,7 @@ On average (pooling over years, sites, plot) a 0.25 m2 plot had ```r round(mean(
 ##Now cowberry.
 Data is messy again and we have a few very high values in 2015. The power variance functions dont work well and I instead tried to model seperate variances for each group x year combination. Seems to work OK and I think the stat tests should be fine. 
 ```{r}
-modC_log_cat <- lme(cowberry_fruits ~ year+real_treat+Latitud.s, random= ~ 1|exp_name/id, means, weights = varIdent(form=~1|real_treat*year) , control=list(maxIter=1000,opt = "optim") )
+modC_log_cat <- lme(cowberry_fruits ~ year*real_treat, random= ~ 1|exp_name/id, means, weights = varIdent(form=~1|real_treat*year) , control=list(maxIter=1000,opt = "optim") )
 #summary(modC_log_cat)
 ```
 
@@ -776,3 +1476,126 @@ The year*treatment effect had no relevance at all here.
 
 ##Conclusion
 Thinning has a positive effect on berry production and nitrogen a negative. Nitrogen increases fungi infection in billberry but not cowberry. Thinning increases infection in cowberry and infection rate increases with latitude.
+
+```{r echo=FALSE, results='hide',message=FALSE}
+## fit model
+
+sleepstudy$Reaction <- as.integer(sleepstudy$Reaction)
+sleepstudy$id <- 1:nrow(sleepstudy)
+sleepstudy$treat <- rep(c("a", "b"), each=90)
+fm1 <- glmer(Reaction ~ treat + (1 | Subject) + (1|id), sleepstudy, family = "poisson")
+summary(fm1)
+newdat <- data.frame(treat=c("a","b"))
+## standard population-level prediction
+pframe <- data.frame(newdat, pred=predict(fm1, newdata=newdat, re.form=NA, type = "response"))
+newdat$id <- c(1:2)
+sims <- matrix(NA, ncol=2, nrow=1000)
+for (i in 1:1000) {
+  sims[i,] <- simulate(fm1, newdata=newdat,re.form=~0,
+             allow.new.levels=TRUE)[[1]]
+}
+colMeans(sims)
+aggregate(Reaction~treat, sleepstudy, mean)
+
+
+mc.mod <- MCMCglmm(Reaction ~ treat, random =~ Subject, data = sleepstudy, family = "poisson", pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE)
+summary(mc.mod)
+newdat$Reaction <- 0
+newdat$Subject <- 1:2
+mc.pred <- predict.MCMCglmm(mc.mod, newdata=newdat,  marginal=~Subject, 
+                            posterior="mean", type="response")
+
+
+
+
+# 	Data Generation - 
+###############
+set.seed(1)
+#Random Intercept Hyperparams 
+intercept.od<--0.5
+intercept.od.sd<-0.5
+n.pops.od<-10
+n.ind.od<-50
+popid.od<-gl(n.pops.od,n.ind.od )
+
+#Slope Vector
+treat.slope.od<-0.25
+
+###### Number of simulations
+nsim2<-100
+
+#Range of Overdispersion Values
+epsvals<- 0.75
+
+########	Set up empty vectors and frames for data
+naive.intercept.mean<-od.intercept.mean<-naive.slope<-od.slope<-naive.intercept.se <-od.intercept.se<-olre.se<-VarF.naive.od<-VarF.od.od<-VarDenom.naive.random.od<-VarDenom.od.random.od<-VarDenom.naive.residual.od<-VarDenom.od.residual.od<-naive.slopeerror.eps<-naive.intercepterror.eps<-od.slopeerror.eps<-od.intercepterror.eps<-matrix(nrow=length(epsvals),ncol=nsim2)
+
+
+############
+# Loop Start
+############
+
+
+	for (j in 1:nsim2){
+
+		#Treat Covariates
+			treat <- rep(c("a", "b"), 10, each=25)#rnorm(length(popid.od),30,4)
+			
+			#Data
+			data2<-data.frame(popid.od, treat, obs=factor(1:(n.pops.od*n.ind.od)))
+			data2$off<-simulate(~treat+(1|popid.od)+ (1|obs),newdata=data2,newparams=list(theta=c(epsvals,intercept.od.sd),beta=c(intercept.od,treat.slope.od)),family=poisson)[[1]]
+m.glmer <- glmer(off ~ treat+(1|popid.od)+(1|obs),family=poisson,data=data2)
+	}
+summary(m.glmer)
+exp(fixef(m.glmer)[1]+fixef(m.glmer)[2] + 0.5*(VarCorr(m.glmer)$obs[1]+VarCorr(m.glmer)$popid.od[1])) #BEST!
+
+set.seed(1)
+newdat <- data.frame(treat=c("a", "b"), obs=c(1000,2000), popid.od = c(1000,2000))
+# Predict population means
+predict(m.glmer, newdata=newdat, re.form=NA, type="response")
+
+# Low predictions if compared to raw means
+aggregate(off ~ treat, data2, mean)
+
+# Now condition on all random effects
+data2$ss <- predict(m.glmer, re.form=~(1|popid.od) + (1|obs), type="response", allow.new.levels=TRUE) 
+aggregate(dd ~ treat, data2, mean)
+
+data2$dd 
+ee <- simulate(m.glmer ,re.form=NA,  allow.new.levels=TRUE, nsim=1000)
+ww <- lapply(ee, FUN= function (x) c(mean(x[1:90]), mean(x[91:180])))
+rowMeans(as.data.frame(ww))          
+
+sfun1 <- function(x) {
+    simulate(x,newdata=newdat,re.form=~0,
+             allow.new.levels=TRUE)[[1]]
+}
+sfun2 <- function(x) {
+    simulate(x,newdata=newdat,re.form=~0, cond.sim=FALSE,
+             allow.new.levels=TRUE)[[1]]
+}
+
+b2 <- bootMer(m.glmer, FUN=sfun2, nsim=1000, seed=101)
+colMeans(b1$t)
+
+sims <- matrix(NA, ncol=2, nrow=2000)
+for (i in 1:2000) {
+  sims[i,] <- simulate(m.glmer, newdata=newdat, re.form=NA,
+             allow.new.levels=TRUE)[[1]]
+}
+colMeans(sims)
+quantile(sims[,2],c(0.025,0.975))
+
+m.mc <- MCMCglmm(off ~ treat, random= ~ popid.od, data=data2, family = "poisson",  
+                  pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, nitt = 25000)
+summary(m.mc)
+newdat$off <- 0
+predict(m.mc, newdata=newdat, marginal=NULL, posterior="mean", type="response")
+predict(m.mc, marginal=~units, posterior="mean", type="response")
+
+predict(m.mc, newdata=newdat, marginal=NULL, posterior="all", type="response", interval = "confidence")
+mean(exp(m.mc$Sol[,1]+m.mc$Sol[,2] + 0.5*rowSums(m.mc$VCV)))
+mean(exp(m.mc$Sol[,1] + 0.5*m.mc$VCV[,2]))
+    
+aggregate(off ~ treat, data2, mean)
+```
