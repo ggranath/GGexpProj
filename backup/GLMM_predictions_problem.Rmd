@@ -1,0 +1,264 @@
+---
+title: "GLMM predictions - Poisson"
+author: "Gustaf Granath"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(MCMCglmm)
+library(ggplot2)
+```
+
+### Background
+Plotting raw data is not always very informative when we have complex models. A "better" way to visualize and communicate results are model predictions with associated uncertainty. However, this is often not trivial for mixed-models and particularly for GLMMs. One option is to show the effects on the link scale (e.g. coefficient estimates), or give the relative (%) change (i.e. exp(fixef(model))).  Those options are all fine but sometimes you want a direct connection between data and model and make plots on the response scale. Here I try to look at that in detail for models fitted with a Poisson distribution. 
+
+### Simulate data and run model
+First I simulate a data set with overdispersion. Code to simulate is taken from
+Harrison, Xavier (2014): Overdispersion and Observation-Level Random Effect Simulation Data. fig share. 
+httpd://dz.do.org/10.6084/m9.fig share.1144471.v3
+
+```{r cache=TRUE}
+# 	Data Generation - 
+# An experimental set up with two treatments, A and B (fix), performed in X populations (random).
+# The data is overdispersed.
+set.seed(1)
+#Random Intercept 
+intercept.od<--0.5 # Treatment A mean
+intercept.od.sd<-0.5 # Among  populations variation (std dev)
+n.pops.od<-10 # 10 populations
+n.ind.od<-50 # 50 in each population
+popid.od<-gl(n.pops.od,n.ind.od )
+
+# Treatment effect
+treat.slope.od<-0.25 # link scale
+treat <- rep(c("a", "b"), 10, each=25)#
+
+# Overdispersion, sqrt(variance)
+epsvals<- sqrt(0.55)
+
+# Data
+data2 <- data.frame(popid.od, treat, obs=factor(1:(n.pops.od*n.ind.od)))
+# simulate the response (off)
+set.seed(1)
+data2$off <- simulate(~treat+(1|popid.od)+ (1|obs), newdata=data2, newparams=list(theta=c(epsvals,intercept.od.sd), beta=c(intercept.od, treat.slope.od)), family=poisson)[[1]]
+
+# Run model with obervation-level random effect to handle overdispersion
+m.glmer <- glmer(off ~ treat+(1|popid.od)+(1|obs),family=poisson,data=data2)
+summary(m.glmer)
+
+# with MCMCglmm
+m.mc <- MCMCglmm(off ~ treat, random= ~ popid.od, data=data2, family = "poisson", prior=list(R=list(V=1, 
+                  nu=0.002), G=list(G1=list(V=1, nu=0.002))), thin = 25, burnin = 10000,
+                  pr = TRUE, pl = TRUE, saveX = TRUE,  saveZ = TRUE, nitt = 50000, verbose = FALSE)
+summary(m.mc)
+```
+There is some evidence of a treatment effect and the glmer and MCMCglmm model output are almost identical. So how do we get the predicted treatment means?
+The raw means are 
+```{r include=FALSE}  
+aggregate(off ~ treat, data2, mean)
+```
+
+### Predicted treatment means
+Lets start with treatment level predictions.
+```{r}
+# First create a data set with our two treatment levels
+set.seed(1)
+newdat <- data.frame(treat=c("a", "b"), obs=c(1000,2000), popid.od = c(1000,2000))
+
+# Treatment level prediction
+glmer.no.marg <- predict(m.glmer, newdata=newdat, re.form=NA, type="link") # link scale
+
+# Compare with raw means
+rawMeans <- aggregate(off ~ treat, data2, mean)
+data.frame(type = rep(c("Treat. level prediction", "Raw mean"), each=2), 
+           rbind(data.frame(treat=c("a","b"),off= exp(glmer.no.marg)), rawMeans))
+```
+Predicted values are low compared to the raw means. This is expected though. To quote the MCMCglmm course notes, "the expectation of the response variable y is different from the linear predictor if we wish to average over the residuals" [MCMCglmm course notes p.45-46](https://cran.r-project.org/web/packages/MCMCglmm/vignettes/CourseNotes.pdf). In the Poisson model random effects are not additive on the response scale, $E[{\bf y}] = \textrm{exp}({\bf X}{\beta}+{\bf Z}{\bf u}+{\bf e})$. This complicates things when move between link scale and response scale, see e.g. [Fig 2.5 in MCMCglmm course notes](https://cran.r-project.org/web/packages/MCMCglmm/vignettes/CourseNotes.pdf). To get predictions closer to the raw means we can marginalise over random effects, including the observation-level effect that act as a residual term (i.e. overdispersion).
+
+```{r}
+marg.res <- predict(m.glmer, re.form=~(1|popid.od) + (1|obs), type="response")
+aggregate(marg.res ~ treat, data2, mean)
+```
+Much better! We can also do this manually for each treatment level. According to [MCMCglmm course notes p. 46](https://cran.r-project.org/web/packages/MCMCglmm/vignettes/CourseNotes.pdf) we should add the $0.5*\sigma^{2})$ ($\sigma^{2}$ is the sum of the variance components) to the fixed effect estimate. 
+
+```{r}
+#treatment A and B predicted means
+glmer.all.marg.treatA <- fixef(m.glmer)[1] + 0.5*(VarCorr(m.glmer)$obs[1]+VarCorr(m.glmer)$popid.od[1])
+glmer.all.marg.treatB <-fixef(m.glmer)[1]+fixef(m.glmer)[2] + 0.5*(VarCorr(m.glmer)$obs[1]+VarCorr(m.glmer)$popid.od[1])
+exp(c(treat_A=glmer.all.marg.treatA, treat_B=glmer.all.marg.treatB))
+
+# Numbers looks good now. What if we only marginalise over the residual term?
+glmer.resid.marg.treatA <- fixef(m.glmer)[1] + 0.5*VarCorr(m.glmer)$obs[1]
+glmer.resid.marg.treatB <- fixef(m.glmer)[1]+fixef(m.glmer)[2] + 0.5*VarCorr(m.glmer)$obs[1]
+exp(c(treat_A=glmer.resid.marg.treatA, treat_B=glmer.resid.marg.treatB))
+
+# The difference we see is the effect of random pop variable. 
+
+#We can plot the different means.
+library(ggplot2)
+raw <- aggregate(off ~ treat, data2, mean)
+pred.dat <- data.frame(treat= raw[,1],Prediction = c(log(raw[,2]), c(glmer.all.marg.treatA, glmer.all.marg.treatB, glmer.resid.marg.treatA, glmer.resid.marg.treatB, glmer.no.marg)), type = rep( c("Raw data", "All random eff marginalised", "Obs-level marg.", "No terms marginalised"), each=2))
+ggplot(pred.dat, aes(y = exp(Prediction), x = treat, fill = type)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  ylim(c(0,1.2)) + ylab("Predicted response")
+```
+
+Lets try this with the MCMCglmm model. 
+```{r}
+newdat$off <- 0 # predict.MCMCglmm requires this.
+# predict(m.mc, newdata=newdat, marginal=NULL, posterior="all", type="response")
+# Ouch, error msg. This should marginalise over all random effects, including the observation-level effect that is called "units" in MCMCglmm. Not sure why it doesnt work. Lets try with only the pop effect.
+
+predict(m.mc, newdata=newdat, marginal=~popid.od, posterior="all", type="response")
+# Works but prediction higher than raw data. This is weird and the predicted values do not change if I change population or obs numbers in the new data set, and remain the same when I run it again.
+
+# Lets try with the original data set instead.
+marg.res.mc <- predict(m.mc, marginal=NULL, posterior="all", type="response")
+(aggregate(marg.res.mc ~ treat, data2, mean))
+# OK, make sense. Very similar to the raw means.
+
+# We can try 'by hand'
+a.marg <- mean(m.mc$Sol[,1] + 0.5*rowSums(m.mc$VCV)) # treat a, link scale
+b.marg <-mean(rowSums(m.mc$Sol[,1:2]) + 0.5*rowSums(m.mc$VCV)) # treat b, link scale
+exp(c(treat_A=a.marg, treat_B=b.marg))
+
+# Similar results to above but not identical. The latter, by hand, results here should be "correct" according to the course notes and Im not sure how it can't be replicated using the predict() function.
+# Lets compare predictions with the treatment raw means (red line)
+par(mfrow=c(1,2))
+hist(exp(m.mc$Sol[,1] + 0.5*rowSums(m.mc$VCV)), breaks=100, main="Treat A", xlab="Prediction")
+abline(v=mean(data2[data2$treat == "a", "off"]), col="red")
+hist(exp(m.mc$Sol[,1]+m.mc$Sol[,2] + 0.5*rowSums(m.mc$VCV)), breaks=100, main="Treat B", xlab="Prediction")
+abline(v=mean(data2[data2$treat == "b", "off"]), col="red")
+
+#Again we can try with only marginalising over the additional residual effect (overdispersion).
+a.marg.res <- mean(m.mc$Sol[,1] + 0.5*m.mc$VCV[,2]) # treat a
+b.marg.res <- mean(rowSums(m.mc$Sol[,1:2]) + 0.5*m.mc$VCV[,2]) # treat b
+exp(c(treat_A=a.marg.res, treat_B=b.marg.res))
+
+# As we expected, lower values.
+
+# Lets put it all together and plot
+a.nomarg.res <- mean(m.mc$Sol[,1]) # treat a, only fixed effect
+b.nomarg.res <- mean(rowSums(m.mc$Sol[,1:2])) # treat b, only fixed effect
+
+pred.dat[9:14,2]  <- c(a.nomarg.res, b.nomarg.res, a.marg, b.marg, a.marg.res, b.marg.res)
+pred.dat[9:14,1]  <- rep(c("a", "b"),3)
+pred.dat[9:14,3] <- rep(c("No terms marginalised", "All random eff marginalised", "Obs-level marg."),each=2)
+pred.dat$model <- c(rep("data",2), rep("glmer",6), rep("MCMCglmm",6))
+
+# Lets plot again
+ggplot(pred.dat, aes(y = exp(Prediction), x = treat, fill = type)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  ylim(c(0,1.2)) +
+  ylab("Prediction") +
+  facet_wrap(~model)
+
+```
+
+### Predictions: confidence intervals
+However, what about confidence intervals? For mixed-models we have uncertainty at multiple layers and we have to decide what uncertainty we want to include. Often we only want to incorporate the uncertainty in the parameters to create confidence intervals (confidence in the 'effect'). Adding other sources of variation give us prediction intervals (possible values if we sample a new population) and sometimes that is of interest as well. With our glmer model we can get standard errors (95% confidence interval roughly 2*SE) very easy (bootstrap approach better but slower and yield very similar results).
+
+```{r}
+X <- model.matrix(formula(m.glmer,fixed.only=TRUE)[-2],
+                   newdat)
+    V <- vcov(m.glmer)     ## var-cov matrix of beta
+    pred.se <- sqrt(diag(X %*% V %*% t(X))) ## SEs of predictions
+pred.dat$se <- rep(pred.se,7) 
+ggplot(subset(pred.dat, model == "glmer"), aes(y = exp(Prediction), x = treat, fill = type)) +
+  geom_bar(position="dodge", stat="identity") +
+  geom_errorbar(aes(ymin=exp(Prediction-se), ymax=exp(Prediction+se)), 
+                width=0, position=position_dodge(1)) +
+  facet_grid(~model) +
+  ylim(c(0,1.4)) +
+  ylab("Prediction") + ggtitle("Predictions +- SE") 
+```
+
+```{r cache=TRUE}
+# We can also get bootstrap estimates of the 95% confidence intervals.
+# Here for the fully marginalised means.
+FUN <- function(fit) {
+      return(c(exp(fixef(fit)[1] + 0.5*(VarCorr(fit)$obs[1]+VarCorr(fit)$popid.od[1])),
+      exp(fixef(fit)[1]+fixef(fit)[2] + 0.5*(VarCorr(fit)$obs[1]+VarCorr(fit)$popid.od[1])) ))
+      }
+
+result <- suppressWarnings(bootMer(m.glmer, FUN, nsim = 1000))
+ci <- rbind(quantile(result$t[,1], c(0.025,0.975)), quantile(result$t[,2], c(0.025,0.975)) )
+ci_easy <- cbind(pred.dat$Prediction - 1.96*pred.dat$se, pred.dat$Prediction + 1.96*pred.dat$se)
+data.frame("ci type"= rep(c("easy","boot"),each=2), treat=c("a", "b"), rbind(ci, exp(ci_easy[3:4,])))
+```
+I first simply added the standard errors derived from parameter uncertainty to the the marginalised means. Then a bootstrap approach was used to estimate the uncertainty around the means. Not sure if all this make sense though. This becomes harder with the MCMCglmm model.
+
+```{r}
+# For MCMCglmm
+# First I try the predict function
+data.frame(treat=c("a","b"), predict(m.mc, newdata=newdat, marginal=~popid.od, posterior="all", type="response", interval = "confidence"))
+# However, think this includes unceartinty in the variance components (population and observation-level overdispersion). That can be a good thing....depends I guess. These values are too high though. 
+
+#predict(m.mc, newdata=newdat, marginal=NULL, posterior="all", type="response", interval = "confidence")
+# Do not work.....not sure why.
+
+# Lets do this by hand.This, I think, makes sense to do and should corrspond to the above function.
+a.marg <- HPDinterval(m.mc$Sol[,1] + 0.5*rowSums(m.mc$VCV)) # treat a
+b.marg <- HPDinterval(as.mcmc(rowSums(m.mc$Sol[,1:2])) +  0.5*rowSums(m.mc$VCV)) # treat b
+res <- exp(rbind(treat_A=a.marg, treat_B=b.marg)); rownames(res) <- c("A", "B")
+res
+# The intervals are wide though.....too wide I think.
+
+# I guess this ignores the uncertainty in the variance components.
+# very similar numbers though...so....
+aint <- HPDinterval(m.mc$Sol[,1] + 0.5*sum(apply(m.mc$VCV,2, mean))) # treat a
+bint <- HPDinterval(as.mcmc(rowSums(m.mc$Sol[,1:2])) +  0.5*sum(apply(m.mc$VCV,2, mean))) # treat b
+res <- exp(rbind(treat_A=aint, treat_B=bint)); rownames(res) <- c("A", "B")
+res
+```
+
+In general I get intervals much much wider than for the glmer model. Well, actually, it is the upper limit that much higher. For he lower limit glmer and MCMCglmm matches quite well. Something is not righ there....
+
+```{r}
+# Lets arrange the CIs and plot them
+pred.dat$ci_lo <- pred.dat$Prediction-pred.se*2 
+pred.dat$ci_up <- pred.dat$Prediction+pred.se*2 
+pred.dat[1:2, 6:7] <- 0 
+pred.dat[11:12, 6:7] <- rbind(a.marg, b.marg)
+pred.dat[9:10, 6:7] <- rbind(HPDinterval(m.mc$Sol[,1]),
+                              HPDinterval(as.mcmc(rowSums(m.mc$Sol[,1:2]))))
+pred.dat[13:14, 6:7] <- rbind(HPDinterval(m.mc$Sol[,1] + 0.5*m.mc$VCV[,2]), # treat a
+                        HPDinterval(as.mcmc(rowSums(m.mc$Sol[,1:2])) + 0.5*m.mc$VCV[,2])) # treat b
+
+ci_easy[-c(3:4),] <- 0; pred.dat <- cbind(pred.dat, ci_easy); colnames(pred.dat)[8:9] <-c("boot_lo", "boot_up") 
+ggplot(pred.dat, aes(y = exp(Prediction), x = treat, fill = type)) +
+  geom_bar(position="dodge", stat="identity") +
+  geom_errorbar(aes(ymin=exp(ci_lo), ymax=exp(ci_up)), 
+                width=0, position=position_dodge(0.9)) +
+  facet_grid(~model) +
+  ylim(c(0,1.75)) +
+  ylab("Prediction") +
+  geom_errorbar(aes(ymin=exp(boot_lo), ymax=exp(boot_up)), 
+                width=0, position=position_dodge(0.1), colour="red")
+# Red error bar show the bootstrap CI for the glmer model.
+
+```
+
+MCMCglmm intervals are much wider as for glmer and I'm not sure how to interpret this. I expect them to be wider but maybe not this much. The 95% bands cover the other treatment mean value although the effect was 'significant' (MCMCglmm model P = ```r  summary(m.mc)$solutions[2,5]```).
+
+After all, maybe showing percent change isn't a bad option :).
+
+```{r}
+est <- as.data.frame(summary(m.mc)$solutions)
+est$vars <- rownames(est)
+colnames(est)[2:3] <-c("lo_95", "hi_95")
+est[,1:3] <- (exp(est[,1:3])-1) * 100
+ggplot(est[2,], aes(x=vars, y=post.mean)) + 
+  geom_hline(yintercept=0, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin=lo_95, ymax=hi_95), 
+                lwd=1, colour="red", width=0) +
+  geom_point(size=4, pch=21, fill="yellow") +
+  ylim(c(-10, 100)) +
+  xlab("") +
+  ylab("Effect (%)") +
+  theme_bw() +
+  coord_flip()
+```  
