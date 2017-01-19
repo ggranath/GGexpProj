@@ -153,7 +153,7 @@ X <- model.matrix(formula(cow.cov.mc$Fixed$formula,fixed.only=TRUE)[-2],
                   newDat)
 res <- apply(cow.cov.mc$Sol[,1:7],1, function (x) x %*% t(X))
 
-# Sqrt tranformed response so for comparison with bilberry model, which is untransformed,
+# Sqrt tranformed response. To compare with bilberry model, which is untransformed,
 # effect sizes are recalculated on the response scale.
 # Effects are calculated by taking the difference beyween treatment groups
 # while contrasts are kept the same.
@@ -189,7 +189,7 @@ png("figure2_cover_plot.png", width=15, height=30, units="cm", res=300)
 grid.arrange(bil.cov.p , cow.cov.p , ncol=1, nrow =2)
 dev.off()
 
-#### Fungal incidence ####
+#### Disease incidence (fungi) ####
 
 # Make id variable to include repeated measurement random structure
 sums$id <- factor(paste(sums$treatment_name,sums$exp_name, sep="_"))
@@ -247,7 +247,7 @@ bil.fun.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) +
 
 # cowberry
 # Response is number of infected shoots. 
-# Hence Poisson errors are used. 
+# Hence, Poisson errors are used. 
 sums$cowberry_cover.ave <- sums$cowberry_cover/14 # calc mean cover
 
 # Priors with offset term (+0.5 in the model because there are zeros in the data)
@@ -439,12 +439,12 @@ raw.means.off[,6:8] <- (exp(raw.means.off[,6:8]))
 bil.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
   geom_hline(yintercept=1, lty=2, lwd=1, colour="grey50") +
   geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
-                lwd=0.7, colour="red", width=0, , position=position_nudge(x=0.1)) +
+                lwd=0.7, colour="red", width=0, position=position_nudge(x=0.1)) +
   geom_point(size=2, pch=21, aes(fill="yellow"), position=position_nudge(x=0.1)) +
   geom_point(data=raw.means.off[-c(1:2),], aes(x=vars, y=eff, fill="blue"), position=position_nudge(x=-0.1), 
              size=2, pch=21) +
   geom_errorbar(data=raw.means.off[-c(1:2),], aes(ymin=lo_95, ymax=up_95), 
-                lwd=0.7, colour="black", width=0, , position=position_nudge(x=-0.1)) +
+                lwd=0.7, colour="black", width=0, position=position_nudge(x=-0.1)) +
   ylim(c(0, 4)) +
   xlab("") +
   ylab("Rate ratio") +
@@ -481,7 +481,7 @@ cow.mc.year <- MCMCglmm(cowberry_fruits ~ year + latitude.s,
 summary(cow.mc.year)
 
 
-# Model with offset, estimating the effect per percent plant cover
+# Model with offset term. Estimating the effect per percent plant cover
 # Priors
 B= list(mu = matrix(c(0,0,0,0,0,0,1,0,0,0,0,0),12),V = diag(12)*(10))
 prior = list(B=B,R=list(V=1, nu=0.002), 
@@ -513,7 +513,7 @@ raw.means <- rbind(raw.means, c(raw.means[10,1:5], lat.eff) )
 raw.means$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014", "N-2015",
                     "Thin+N-2014", "Thin+N-2015", "Thin+N+P-2014", "Thin+N+P-2015", "latitude")
 
-# then with offset term
+# then with offset term added
 raw.means.off <- aggregate(cowberry_fruits ~ year*thin*N+year*P, sums, mean)
 newDat.off <- raw.means.off[,1:4] 
 newDat.off$latitude.s <- 0
@@ -534,12 +534,12 @@ raw.means.off$vars <- c("control", "control", "Thin-2014", "Thin-2015", "N-2014"
 cow.p <- ggplot(raw.means[-c(1:2),], aes(x=vars, y=eff)) + 
   geom_hline(yintercept=0, lty=2, lwd=1, colour="grey50") +
   geom_errorbar(aes(ymin=lo_95, ymax=up_95), 
-                lwd=0.7, colour="red", width=0, , position=position_nudge(x=0.1)) +
+                lwd=0.7, colour="red", width=0, position=position_nudge(x=0.1)) +
   geom_point(size=2, pch=21, aes(fill="yellow"), position=position_nudge(x=0.1)) +
   geom_point(data=raw.means.off[-c(1:2),], aes(x=vars, y=eff, fill="blue"), position=position_nudge(x=-0.1), 
              size=2, pch=21) +
   geom_errorbar(data=raw.means.off[-c(1:2),], aes(ymin=lo_95, ymax=up_95), 
-                lwd=0.7, colour="black", width=0, , position=position_nudge(x=-0.1)) +
+                lwd=0.7, colour="black", width=0, position=position_nudge(x=-0.1)) +
   ylim(c(-8, 7)) +
   xlab("") +
   ylab("Log rate ratio") +
@@ -554,7 +554,7 @@ ggsave("figure5_fruit_cowberry.png", cow.p)
 
 #### SEM model ####
 
-# SEM mcmc way
+# SEM mcmc approach
 
 # Fix variables
 sums$id <- factor(paste(sums$treatment_name, sums$exp_name, sep="_"))
